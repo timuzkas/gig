@@ -967,8 +967,7 @@ func (a *App) populateFiles() {
 	clearListBox(a.fileListBox)
 	a.selectedFileRow = nil
 
-	if a.state == nil || len(a.state.Files) == 0 {
-		a.fileListBox.Append(a.makePlaceholderRow("Working tree clean"))
+	if a.state == nil {
 		return
 	}
 
@@ -980,12 +979,116 @@ func (a *App) populateFiles() {
 			unstaged = append(unstaged, f)
 		}
 	}
+
 	if len(staged) > 0 {
 		a.appendFileSection("Staged", staged, true)
 	}
 	if len(unstaged) > 0 {
 		a.appendFileSection("Changes", unstaged, false)
 	}
+
+	// Add Ignored Section
+	ignored := GetIgnoredFiles(a.state.Path)
+	if len(ignored) > 0 {
+		a.appendIgnoredSection(ignored)
+	}
+}
+
+func (a *App) appendIgnoredSection(files []string) {
+	expander := gtk.NewExpander("Ignored Files")
+	expander.AddCSSClass("ignored-expander")
+	
+	list := gtk.NewListBox()
+	list.SetSelectionMode(gtk.SelectionNone)
+	
+	for _, f := range files {
+		f := f
+		row := gtk.NewListBoxRow()
+		box := gtk.NewBox(gtk.OrientationHorizontal, 6)
+		box.AddCSSClass("file-row-box")
+		
+		lbl := gtk.NewLabel(f)
+		lbl.SetHExpand(true)
+		lbl.SetXAlign(0)
+		lbl.AddCSSClass("dim")
+		
+		unignoreBtn := gtk.NewButtonWithLabel("Un-ignore")
+		unignoreBtn.AddCSSClass("flat")
+		unignoreBtn.ConnectClicked(func() {
+			UnignoreFile(a.state.Path, f)
+			a.doReload(false)
+		})
+		
+		box.Append(lbl)
+		box.Append(unignoreBtn)
+		row.SetChild(box)
+		list.Append(row)
+	}
+	
+	expander.SetChild(list)
+	row := gtk.NewListBoxRow()
+	row.SetSelectable(false)
+	row.SetChild(expander)
+	a.fileListBox.Append(row)
+}
+
+func (a *App) showFileContextMenu(relativeTo gtk.Widgetter, f FileStatus, staged bool) {
+	menu := gtk.NewPopover()
+	menu.SetHasArrow(true)
+	menu.SetParent(relativeTo)
+
+	box := gtk.NewBox(gtk.OrientationVertical, 0)
+	
+	addItem := func(label string, destructive bool, fn func()) {
+		btn := gtk.NewButtonWithLabel(label)
+		btn.AddCSSClass("flat")
+		if destructive { btn.AddCSSClass("destructive-action") }
+		btn.ConnectClicked(func() {
+			menu.Popdown()
+			fn()
+		})
+		box.Append(btn)
+	}
+
+	addItem("Open in Editor", false, func() {
+		OpenInEditor(a.state.Path, f.Path, a.cfg.Behavior.EditorCommand)
+	})
+	
+	if staged {
+		addItem("Unstage File", false, func() {
+			UnstageFile(a.state.Path, f.Path)
+			a.doReload(false)
+		})
+	} else {
+		addItem("Stage File", false, func() {
+			StageFile(a.state.Path, f.Path)
+			a.doReload(false)
+		})
+	}
+
+	addItem("Diff Changes", false, func() {
+		a.loadFileDiff(f.Path, staged)
+	})
+
+	addItem("Stash this file", false, func() {
+		StashSingleFile(a.state.Path, f.Path)
+		a.doReload(false)
+	})
+
+	addItem("Add to .gitignore", false, func() {
+		IgnoreFile(a.state.Path, f.Path)
+		a.doReload(false)
+	})
+
+	addItem("REVERT (Destructive)", true, func() {
+		a.confirmDialog("Revert File?", "Discard all changes in "+f.Path+"?", true, func() {
+			RevertFile(a.state.Path, f.Path)
+			a.doReload(false)
+		})
+	})
+
+	menu.SetChild(box)
+	menu.Popup()
 }
 
 func (a *App) appendFileSection(title string, files []FileStatus, staged bool) {
@@ -1072,15 +1175,20 @@ func (a *App) appendFileSection(title string, files []FileStatus, staged bool) {
 		row.SetChild(box)
 
 		click := gtk.NewGestureClick()
-		click.ConnectReleased(func(_ int, _, _ float64) {
-			if a.state == nil {
-				return
+		click.SetButton(0)
+		click.ConnectReleased(func(n int, x, y float64) {
+			if click.CurrentButton() == 3 { // Right click
+		        a.showFileContextMenu(row, f, staged)
+		    } else {
+				if a.state == nil {
+					return
+				}
+				a.selectedFile = f.Path
+				a.selectedFileMode = staged
+				a.selectedCommit = ""
+				a.loadFileDiff(f.Path, staged)
+				a.markSelectedRow(a.fileListBox, row)
 			}
-			a.selectedFile = f.Path
-			a.selectedFileMode = staged
-			a.selectedCommit = ""
-			a.loadFileDiff(f.Path, staged)
-			a.markSelectedRow(a.fileListBox, row)
 		})
 		row.AddController(click)
 		a.fileListBox.Append(row)

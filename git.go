@@ -600,3 +600,69 @@ func DiscoverRepos(inputs []string, scanParent bool) []RepoInfo {
 
 	return repos
 }
+
+func RevertFile(repoPath, filePath string) error {
+	_, err := gitCmd(repoPath, "checkout", "HEAD", "--", filePath)
+	return err
+}
+
+func StashSingleFile(repoPath, filePath string) error {
+	_, err := gitCmd(repoPath, "stash", "push", "-m", "Stash file: "+filePath, "--", filePath)
+	return err
+}
+
+func IgnoreFile(repoPath, filePath string) error {
+	f, err := os.OpenFile(filepath.Join(repoPath, ".gitignore"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.WriteString("\n" + filePath + "\n")
+	return err
+}
+
+func GetIgnoredFiles(repoPath string) []string {
+	// Lists files that are ignored but exist on disk
+	out, err := gitCmd(repoPath, "ls-files", "--others", "--ignored", "--exclude-standard")
+	if err != nil {
+		return nil
+	}
+	lines := strings.Split(out, "\n")
+	var cleaned []string
+	for _, l := range lines {
+		if t := strings.TrimSpace(l); t != "" {
+			cleaned = append(cleaned, t)
+		}
+	}
+	return cleaned
+}
+
+func UnignoreFile(repoPath, filePath string) error {
+	ignorePath := filepath.Join(repoPath, ".gitignore")
+	input, err := os.ReadFile(ignorePath)
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(input), "\n")
+	var newLines []string
+	for _, line := range lines {
+		if strings.TrimSpace(line) != filePath {
+			newLines = append(newLines, line)
+		}
+	}
+	return os.WriteFile(ignorePath, []byte(strings.Join(newLines, "\n")), 0644)
+}
+
+func AmendCommit(repoPath, newMessage string) error {
+	_, err := gitCmd(repoPath, "commit", "--amend", "-m", newMessage)
+	return err
+}
+
+func OpenInEditor(repoPath, filePath, editorCmd string) {
+	if editorCmd == "" {
+		editorCmd = "micro"
+	}
+	// Run detached
+	cmd := exec.Command("sh", "-c", fmt.Sprintf("%s %s", editorCmd, filepath.Join(repoPath, filePath)))
+	cmd.Start()
+}
