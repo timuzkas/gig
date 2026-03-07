@@ -220,6 +220,7 @@ func (a *App) buildOverlayCard(title string, width int, content gtk.Widgetter, e
 
 	closeBtn := gtk.NewButtonWithLabel("✕")
 	closeBtn.AddCSSClass("flat")
+	closeBtn.AddCSSClass("overlay-close-btn") // Targeted in CSS
 	closeBtn.ConnectClicked(func() { a.hideOverlay() })
 	hdr.Append(closeBtn)
 	card.Append(hdr)
@@ -1433,6 +1434,9 @@ func (a *App) appendBranchSection(title string, branches []BranchInfo) {
 
 		if !b.Current && !b.IsRemote {
 			coBtn := gtk.NewButtonWithLabel("Checkout")
+
+			coBtn.AddCSSClass("flat") 
+			            
 			coBtn.ConnectClicked(func() {
 				a.setInfo("Checking out " + b.Name + "…")
 				go func(repo, branch string) {
