@@ -2622,14 +2622,14 @@ func (a *App) setupDiffTags(buf *gtk.TextBuffer) {
 		}
 		tt.Add(tag)
 	}
-	ensure("added", a.cfg.Colors.Added, "")
-	ensure("removed", a.cfg.Colors.Removed, "")
+	ensure("added", "#7ab87a", "")   // Green
+	ensure("removed", "#c06060", "") // Red
 	ensure("added-char", "#4ade80", "")   // Bright green char
 	ensure("removed-char", "#f87171", "") // Bright red char
-	ensure("header", a.cfg.Colors.Accent, "")
-	ensure("hunk", a.cfg.Colors.TextDim, "")
-	ensure("normal", a.cfg.Colors.Text, "")
-	ensure("modified", a.cfg.Colors.Modified, "")
+	ensure("header", "#c9955c", "")
+	ensure("hunk", "#6e6860", "")
+	ensure("normal", "#ddd8d0", "")
+	ensure("modified", "#b89a5a", "")
 }
 
 func (a *App) nextDiffRequestID() uint64 {
