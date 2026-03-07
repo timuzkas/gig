@@ -1,0 +1,193 @@
+* {
+  border-radius: 0;
+  outline: none;
+  box-shadow: none;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease,
+    border-color 140ms ease,
+    opacity 160ms ease;
+}
+
+window,
+box,
+paned,
+scrolledwindow,
+textview,
+text,
+stack {
+  background: @bg;
+  color: @text;
+}
+
+headerbar {
+  min-height: 42px;
+  background: @surface;
+  border-bottom: 1px solid @border;
+  padding: 0 8px;
+}
+
+headerbar button,
+button {
+  background: @surface2;
+  color: @text;
+  border: 1px solid @border;
+  min-height: 30px;
+  padding: 0 12px;
+}
+
+button:hover {
+  background: alpha(@accent, 0.08);
+  border-color: @accent;
+  color: @accent;
+}
+
+button:active {
+  background: alpha(@accent, 0.14);
+}
+
+button.suggested-action {
+  background: @accent;
+  color: @bg;
+  border-color: @accent;
+}
+
+button.flat {
+  background: transparent;
+}
+
+entry,
+searchentry,
+dropdown {
+  background: @surface2;
+  color: @text;
+  border: 1px solid @border;
+  min-height: 32px;
+}
+
+entry:focus,
+searchentry:focus {
+  border-color: @accent;
+}
+
+separator,
+paned > separator {
+  background: @border;
+  min-width: 1px;
+  min-height: 1px;
+}
+
+.repo-sidebar,
+.file-sidebar,
+.content-panel,
+.status-strip,
+.commit-strip {
+  background: @surface;
+}
+
+.repo-sidebar {
+  border-right: 1px solid @border;
+}
+
+.file-sidebar {
+  border-right: 1px solid @border;
+}
+
+.content-panel {
+  background: @bg;
+}
+
+.section-title {
+  color: @text_dim;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  font-size: 0.8em;
+}
+
+.repo-row,
+.file-row,
+.commit-row {
+  min-height: 38px;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.repo-row-box,
+.file-row-box,
+.commit-row-box {
+  padding: 8px 12px;
+}
+
+.repo-row:hover,
+.file-row:hover,
+.commit-row:hover {
+  background: alpha(@accent, 0.05);
+}
+
+.repo-row.selected,
+.file-row.selected,
+.commit-row.selected {
+  background: @selection;
+}
+
+.repo-name {
+  color: @text;
+  font-weight: 600;
+}
+
+.repo-path,
+.commit-meta,
+.dim {
+  color: @text_dim;
+}
+
+.commit-hash {
+  color: @accent;
+  font-family: monospace;
+}
+
+.status-added {
+  color: @added;
+  font-weight: 700;
+}
+
+.status-modified {
+  color: @modified;
+  font-weight: 700;
+}
+
+.status-removed {
+  color: @removed;
+  font-weight: 700;
+}
+
+.status-unknown {
+  color: @text_dim;
+  font-weight: 700;
+}
+
+.diff-view,
+.diff-view text {
+  background: @bg;
+  color: @text;
+  font-family: monospace;
+  font-size: 12.5pt;
+}
+
+.status-strip {
+  border-top: 1px solid @border;
+  min-height: 34px;
+  padding: 0 12px;
+}
+
+.commit-strip {
+  border-top: 1px solid @border;
+  min-height: 50px;
+  padding: 8px;
+}
+
+.empty {
+  color: @text_dim;
+  font-size: 1.05em;
+}
