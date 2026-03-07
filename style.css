@@ -623,15 +623,21 @@ row.section-header:hover {
    ═══════════════════════════════════════════════════════════════ */
 .overlay-panel {
   background-color: @surface;
-  border: 1px solid alpha(@accent, 0.25);
-  border-radius: 7px;
+  border: 1px solid @border;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.6);
 }
 
 .overlay-header {
   background-color: @surface2;
   border-bottom: 1px solid @border;
   padding: 10px 14px;
-  border-radius: 7px 7px 0 0;
+}
+
+.overlay-close-btn {
+  font-size: 3.4em !important;
+  font-weight: bold !important;
+  min-width: 40px !important;
+  min-height: 40px !important;
 }
 
 .overlay-header label {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"strconv"
@@ -12,6 +13,9 @@ import (
 	"github.com/diamondburned/gotk4/pkg/glib/v2"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 )
+
+//go:embed style.css
+var defaultCSS string
 
 // ── App struct ────────────────────────────────────────────────────
 
@@ -132,6 +136,7 @@ func (a *App) loadCSS() {
 		return
 	}
 	provider := gtk.NewCSSProvider()
+	
 	cssVars := fmt.Sprintf(`
 @define-color bg %s;
 @define-color surface %s;
@@ -153,9 +158,10 @@ func (a *App) loadCSS() {
 		a.cfg.Colors.Modified, a.cfg.Colors.Selection,
 		a.cfg.Appearance.FontFamily, a.cfg.Appearance.FontSize,
 	)
-	if style, err := os.ReadFile("style.css"); err == nil {
-		cssVars += string(style)
-	}
+
+	// Replace the os.ReadFile block with this:
+	cssVars += defaultCSS
+
 	provider.LoadFromData(cssVars)
 	gtk.StyleContextAddProviderForDisplay(display, provider, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 }
