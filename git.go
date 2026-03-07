@@ -18,6 +18,9 @@ type Commit struct {
 	Author    string
 	Date      time.Time
 	DateRel   string
+	Graph     string
+	RefNames  string
+	IsCommit  bool
 }
 
 type FileStatus struct {
@@ -31,6 +34,15 @@ type BranchInfo struct {
 	Name    string
 	Current bool
 	Remote  string
+	Hash    string
+	Subject string
+	Date    string
+}
+
+type RemoteInfo struct {
+	Name     string
+	FetchURL string
+	PushURL  string
 }
 
 type RepoInfo struct {
@@ -45,6 +57,7 @@ type RepoState struct {
 	Commits  []Commit
 	Files    []FileStatus
 	Branches []BranchInfo
+	Remotes  []RemoteInfo
 	Ahead    int
 	Behind   int
 }
@@ -95,7 +108,7 @@ func GetBranches(repoPath string) []BranchInfo {
 		repoPath,
 		"branch",
 		"-a",
-		"--format=%(HEAD)|%(refname:short)|%(upstream:short)",
+		"--format=%(HEAD)|%(refname:short)|%(upstream:short)|%(objectname:short)|%(subject)|%(authordate:relative)",
 	)
 	if err != nil {
 		return nil
@@ -108,7 +121,7 @@ func GetBranches(repoPath string) []BranchInfo {
 			continue
 		}
 
-		parts := strings.SplitN(line, "|", 3)
+		parts := strings.SplitN(line, "|", 6)
 		if len(parts) < 2 {
 			continue
 		}
@@ -120,12 +133,94 @@ func GetBranches(repoPath string) []BranchInfo {
 		if len(parts) > 2 {
 			b.Remote = strings.TrimSpace(parts[2])
 		}
+		if len(parts) > 3 {
+			b.Hash = strings.TrimSpace(parts[3])
+		}
+		if len(parts) > 4 {
+			b.Subject = strings.TrimSpace(parts[4])
+		}
+		if len(parts) > 5 {
+			b.Date = strings.TrimSpace(parts[5])
+		}
 
 		branches = append(branches, b)
 	}
 
 	return branches
 }
+
+func GetRemotes(repoPath string) []RemoteInfo {
+	out, err := gitCmd(repoPath, "remote")
+	if err != nil || strings.TrimSpace(out) == "" {
+		return nil
+	}
+
+	var remotes []RemoteInfo
+
+	for _, name := range strings.Split(out, "\n") {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+
+		fetchURL, _ := gitCmd(repoPath, "remote", "get-url", name)
+		pushURL, err := gitCmd(repoPath, "remote", "get-url", "--push", name)
+		if err != nil || strings.TrimSpace(pushURL) == "" {
+			pushURL = fetchURL
+		}
+
+		remotes = append(remotes, RemoteInfo{
+			Name:     name,
+			FetchURL: strings.TrimSpace(fetchURL),
+			PushURL:  strings.TrimSpace(pushURL),
+		})
+	}
+
+	sort.Slice(remotes, func(i, j int) bool {
+		return strings.ToLower(remotes[i].Name) < strings.ToLower(remotes[j].Name)
+	})
+
+	return remotes
+}
+
+func AddRemote(repoPath, name, url string) error {
+	_, err := gitCmd(repoPath, "remote", "add", name, url)
+	return err
+}
+
+func RemoveRemote(repoPath, name string) error {
+	_, err := gitCmd(repoPath, "remote", "remove", name)
+	return err
+}
+
+func RenameRemote(repoPath, oldName, newName string) error {
+	_, err := gitCmd(repoPath, "remote", "rename", oldName, newName)
+	return err
+}
+
+func SetRemoteURL(repoPath, name, url string) error {
+	_, err := gitCmd(repoPath, "remote", "set-url", name, url)
+	return err
+}
+
+func GetBranchUpstream(repoPath, branch string) string {
+	out, err := gitCmd(
+		repoPath,
+		"for-each-ref",
+		"--format=%(upstream:short)",
+		"refs/heads/"+branch,
+	)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
+func SetBranchUpstream(repoPath, branch, upstream string) error {
+	_, err := gitCmd(repoPath, "branch", "--set-upstream-to", upstream, branch)
+	return err
+}
+
 
 func GetAheadBehind(repoPath string) (int, int) {
 	out, err := gitCmd(
@@ -148,10 +243,11 @@ func GetLog(repoPath string, max int) []Commit {
 	out, err := gitCmd(
 		repoPath,
 		"log",
+		"--graph",
+		"--all",
 		fmt.Sprintf("--max-count=%d", max),
 		"--date=iso-strict",
-		"--format=%H|%h|%s|%an|%aI|%ar",
-		"--all",
+		"--format=§%H§%h§%s§%an§%aI§%ar§%D",
 	)
 	if err != nil {
 		return nil
@@ -164,20 +260,28 @@ func GetLog(repoPath string, max int) []Commit {
 			continue
 		}
 
-		parts := strings.SplitN(line, "|", 6)
-		if len(parts) != 6 {
+		parts := strings.SplitN(line, "§", 8)
+		if len(parts) < 8 {
+			commits = append(commits, Commit{
+				Graph:    line,
+				IsCommit: false,
+			})
 			continue
 		}
 
-		t, _ := time.Parse(time.RFC3339, parts[4])
+		graph := parts[0]
+		t, _ := time.Parse(time.RFC3339, parts[5])
 
 		commits = append(commits, Commit{
-			Hash:      parts[0],
-			ShortHash: parts[1],
-			Subject:   parts[2],
-			Author:    parts[3],
+			Hash:      parts[1],
+			ShortHash: parts[2],
+			Subject:   parts[3],
+			Author:    parts[4],
 			Date:      t,
-			DateRel:   parts[5],
+			DateRel:   parts[6],
+			RefNames:  parts[7],
+			Graph:     graph,
+			IsCommit:  true,
 		})
 	}
 
@@ -299,6 +403,7 @@ func LoadRepoState(repoPath string, maxCommits int) *RepoState {
 		Commits:  GetLog(root, maxCommits),
 		Files:    GetStatus(root),
 		Branches: GetBranches(root),
+		Remotes:  GetRemotes(root),
 		Ahead:    ahead,
 		Behind:   behind,
 	}

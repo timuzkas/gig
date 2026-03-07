@@ -36,6 +36,10 @@ button {
   padding: 0 12px;
 }
 
+button label {
+  background: transparent;
+}
+
 button:hover {
   background: alpha(@accent, 0.08);
   border-color: @accent;
@@ -59,16 +63,38 @@ button.flat {
 entry,
 searchentry,
 dropdown {
-  background: @surface2;
+  background: @surface;
   color: @text;
   border: 1px solid @border;
   min-height: 32px;
+  padding: 0 10px;
 }
+
+entry selection,
+searchentry selection {
+  background: @selection;
+  color: @text;
+}
+
 
 entry:focus,
 searchentry:focus {
   border-color: @accent;
 }
+
+textview,
+textview text,
+.diff-view,
+.diff-view text {
+  background: @surface;
+  color: @text;
+}
+
+.commit-strip entry {
+  background: @surface;
+  border-color: @border;
+}
+
 
 separator,
 paned > separator {
@@ -87,10 +113,12 @@ paned > separator {
 
 .repo-sidebar {
   border-right: 1px solid @border;
+  min-width: 180px;
 }
 
 .file-sidebar {
   border-right: 1px solid @border;
+  min-width: 220px;
 }
 
 .content-panel {
@@ -106,7 +134,8 @@ paned > separator {
 
 .repo-row,
 .file-row,
-.commit-row {
+.commit-row,
+.branch-row {
   min-height: 38px;
   padding: 0;
   border: none;
@@ -115,20 +144,30 @@ paned > separator {
 
 .repo-row-box,
 .file-row-box,
-.commit-row-box {
+.commit-row-box,
+.branch-row-box {
   padding: 8px 12px;
+  min-width: 0;
 }
 
 .repo-row:hover,
 .file-row:hover,
-.commit-row:hover {
+.commit-row:hover,
+.branch-row:hover {
   background: alpha(@accent, 0.05);
 }
 
 .repo-row.selected,
 .file-row.selected,
-.commit-row.selected {
+.commit-row.selected,
+.branch-row.selected {
   background: @selection;
+}
+
+list row {
+  margin: 0;
+  padding: 0;
+  min-width: 0;
 }
 
 .repo-name {
@@ -167,14 +206,6 @@ paned > separator {
   font-weight: 700;
 }
 
-.diff-view,
-.diff-view text {
-  background: @bg;
-  color: @text;
-  font-family: monospace;
-  font-size: 12.5pt;
-}
-
 .status-strip {
   border-top: 1px solid @border;
   min-height: 34px;
@@ -187,7 +218,86 @@ paned > separator {
   padding: 8px;
 }
 
+.commit-strip button,
+headerbar button {
+  min-height: 32px;
+}
+
+.dim {
+  color: @text_dim;
+}
+
+.repo-path,
+.commit-meta,
+.dim {
+  opacity: 0.95;
+}
+
 .empty {
   color: @text_dim;
   font-size: 1.05em;
+}
+
+.commit-graph {
+  font-family: monospace;
+  color: @text_dim;
+  white-space: pre;
+}
+
+.ref-label {
+  font-size: 0.75em;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 1px 0;
+}
+
+.ref-head {
+  background: alpha(@accent, 0.2);
+  color: @accent;
+  border: 1px solid @accent;
+}
+
+.ref-branch {
+  background: alpha(#50fa7b, 0.15);
+  color: #50fa7b;
+  border: 1px solid alpha(#50fa7b, 0.3);
+}
+
+.ref-remote {
+  background: alpha(#ff79c6, 0.15);
+  color: #ff79c6;
+  border: 1px solid alpha(#ff79c6, 0.3);
+}
+
+.ref-tag {
+  background: alpha(#f1fa8c, 0.15);
+  color: #f1fa8c;
+  border: 1px solid alpha(#f1fa8c, 0.3);
+}
+
+stackswitcher {
+  background: @surface;
+  padding: 0 8px;
+  border-bottom: 1px solid @border;
+}
+
+stackswitcher button {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  margin: 0 4px;
+  min-height: 38px;
+  color: @text_dim;
+}
+
+stackswitcher button:checked {
+  color: @accent;
+  background: transparent;
+  border-bottom-color: @accent;
+}
+
+stackswitcher button:hover {
+  background: alpha(@accent, 0.05);
+  color: @text;
 }
