@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/diamondburned/gotk4/pkg/cairo"
 	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gio/v2"
 	"github.com/diamondburned/gotk4/pkg/glib/v2"
@@ -41,15 +42,30 @@ type App struct {
 	stashListBox  *gtk.ListBox
 
 	// Diff
-	diffView *gtk.TextView
-	diffBuf  *gtk.TextBuffer
+	diffView      *gtk.TextView
+	diffBuf       *gtk.TextBuffer
+	diffReqID     uint64
+	showSplit     bool
+	splitView     *gtk.Box
+	diffViewLeft  *gtk.TextView
+	diffBufLeft   *gtk.TextBuffer
+	diffViewRight *gtk.TextView
+	diffBufRight  *gtk.TextBuffer
+
+	// Commit details header
+	commitHeader      *gtk.Box
+	commitAuthor      *gtk.Label
+	commitHashFull    *gtk.Label
+	commitDateFull    *gtk.Label
+	commitSubjectBold *gtk.Label
 
 	// Controls
 	searchEntry  *gtk.SearchEntry
 	branchSearch *gtk.SearchEntry
 	branchDrop   *gtk.DropDown
 	commitEntry  *gtk.Entry
-	commitButton *gtk.Button
+	commitButton   *gtk.Button
+	splitToggleBtn *gtk.Button
 
 	// Labels
 	repoTitle   *gtk.Label
@@ -74,7 +90,6 @@ type App struct {
 	selectedCommit   string
 
 	branchDropBound bool
-	diffReqID       uint64
 
 	branchDropUpdating bool
 	infoStickyUntil    time.Time
@@ -664,26 +679,125 @@ func (a *App) buildLogAndDiff() *gtk.Paned {
 	a.commitListBox.SetSelectionMode(gtk.SelectionNone)
 	logScroll.SetChild(a.commitListBox)
 
-	diffScroll := gtk.NewScrolledWindow()
-	diffScroll.SetPolicy(gtk.PolicyAutomatic, gtk.PolicyAutomatic)
-	diffScroll.SetVExpand(true)
-	diffScroll.AddCSSClass("diff-area")
+	diffContainer := gtk.NewBox(gtk.OrientationVertical, 0)
+	diffContainer.AddCSSClass("diff-area")
 
+	// Diff Toolbar
+	diffToolbar := gtk.NewBox(gtk.OrientationHorizontal, 0)
+	diffToolbar.AddCSSClass("diff-toolbar")
+
+	a.splitToggleBtn = gtk.NewButtonWithLabel("Show Split")
+	a.splitToggleBtn.AddCSSClass("flat")
+	a.splitToggleBtn.AddCSSClass("diff-toggle-btn")
+	a.splitToggleBtn.SetHAlign(gtk.AlignStart)
+	a.splitToggleBtn.ConnectClicked(func() {
+		a.showSplit = !a.showSplit
+		if a.showSplit {
+			a.splitToggleBtn.SetLabel("Show Unified")
+		} else {
+			a.splitToggleBtn.SetLabel("Show Split")
+		}
+		if a.selectedCommit != "" {
+			a.loadCommitDiff(a.selectedCommit)
+		} else if a.selectedFile != "" {
+			a.loadFileDiff(a.selectedFile, a.selectedFileMode)
+		}
+	})
+	diffToolbar.Append(a.splitToggleBtn)
+	diffContainer.Append(diffToolbar)
+
+	// structured header
+	a.commitHeader = gtk.NewBox(gtk.OrientationVertical, 0)
+	a.commitHeader.SetVisible(false)
+	a.commitHeader.AddCSSClass("commit-details-table")
+
+	// Row 1: Author & Hash
+	row1 := gtk.NewBox(gtk.OrientationHorizontal, 0)
+	row1.AddCSSClass("commit-details-row")
+	a.commitAuthor = gtk.NewLabel("")
+	a.commitAuthor.SetXAlign(0)
+	a.commitAuthor.AddCSSClass("commit-details-author")
+	row1.Append(a.commitAuthor)
+
+	spacer := gtk.NewBox(gtk.OrientationHorizontal, 0)
+	spacer.SetHExpand(true)
+	row1.Append(spacer)
+
+	a.commitHashFull = gtk.NewLabel("")
+	a.commitHashFull.SetXAlign(1)
+	a.commitHashFull.AddCSSClass("commit-details-hash")
+	row1.Append(a.commitHashFull)
+	a.commitHeader.Append(row1)
+	a.commitHeader.Append(gtk.NewSeparator(gtk.OrientationHorizontal))
+
+	// Row 2: Date
+	row2 := gtk.NewBox(gtk.OrientationHorizontal, 0)
+	row2.AddCSSClass("commit-details-row")
+	a.commitDateFull = gtk.NewLabel("")
+	a.commitDateFull.SetXAlign(0)
+	a.commitDateFull.AddCSSClass("commit-details-date")
+	row2.Append(a.commitDateFull)
+	a.commitHeader.Append(row2)
+	a.commitHeader.Append(gtk.NewSeparator(gtk.OrientationHorizontal))
+
+	// Row 3: Subject
+	row3 := gtk.NewBox(gtk.OrientationHorizontal, 0)
+	row3.AddCSSClass("commit-details-row")
+	a.commitSubjectBold = gtk.NewLabel("")
+	a.commitSubjectBold.SetXAlign(0)
+	a.commitSubjectBold.SetWrap(true)
+	a.commitSubjectBold.AddCSSClass("commit-details-subject")
+	row3.Append(a.commitSubjectBold)
+	a.commitHeader.Append(row3)
+	a.commitHeader.Append(gtk.NewSeparator(gtk.OrientationHorizontal))
+
+	diffContainer.Append(a.commitHeader)
+
+	// Unified View
 	a.diffBuf = gtk.NewTextBuffer(nil)
 	a.diffView = gtk.NewTextViewWithBuffer(a.diffBuf)
 	a.diffView.SetEditable(false)
 	a.diffView.SetCursorVisible(false)
 	a.diffView.SetMonospace(true)
-	a.diffView.SetTopMargin(12)
-	a.diffView.SetBottomMargin(12)
-	a.diffView.SetLeftMargin(16)
-	a.diffView.SetRightMargin(16)
+	a.diffView.SetLeftMargin(20)
+	a.diffView.SetRightMargin(20)
 	a.diffView.AddCSSClass("diff-view")
-	diffScroll.SetChild(a.diffView)
+	diffContainer.Append(a.diffView)
+
+	// Split View
+	a.splitView = gtk.NewBox(gtk.OrientationHorizontal, 0)
+	a.splitView.SetVisible(false)
+	a.splitView.SetHExpand(true)
+
+	a.diffBufLeft = gtk.NewTextBuffer(nil)
+	a.diffViewLeft = gtk.NewTextViewWithBuffer(a.diffBufLeft)
+	a.diffViewLeft.SetEditable(false)
+	a.diffViewLeft.SetMonospace(true)
+	a.diffViewLeft.SetHExpand(true)
+	a.diffViewLeft.AddCSSClass("diff-view-split")
+	a.splitView.Append(a.diffViewLeft)
+
+	vsep := gtk.NewSeparator(gtk.OrientationVertical)
+	a.splitView.Append(vsep)
+
+	a.diffBufRight = gtk.NewTextBuffer(nil)
+	a.diffViewRight = gtk.NewTextViewWithBuffer(a.diffBufRight)
+	a.diffViewRight.SetEditable(false)
+	a.diffViewRight.SetMonospace(true)
+	a.diffViewRight.SetHExpand(true)
+	a.diffViewRight.AddCSSClass("diff-view-split")
+	a.splitView.Append(a.diffViewRight)
+
+	diffContainer.Append(a.splitView)
+
+	diffScroll := gtk.NewScrolledWindow()
+	diffScroll.SetPolicy(gtk.PolicyAutomatic, gtk.PolicyAutomatic)
+	diffScroll.SetVExpand(true)
+	diffScroll.SetChild(diffContainer)
 
 	paned.SetStartChild(logScroll)
 	paned.SetEndChild(diffScroll)
-	paned.SetPosition(270)
+	paned.SetPosition(300)
 	return paned
 }
 
@@ -761,12 +875,16 @@ func (a *App) buildCommitStrip() *gtk.Box {
 // ── Status strip ──────────────────────────────────────────────────
 
 func (a *App) buildStatusStrip() *gtk.Box {
-	box := gtk.NewBox(gtk.OrientationHorizontal, 10)
+	box := gtk.NewBox(gtk.OrientationHorizontal, 0)
 	box.AddCSSClass("status-strip")
 
 	a.branchLabel = gtk.NewLabel("")
+	a.branchLabel.SetMarginEnd(8)
+
 	a.aheadLabel = gtk.NewLabel("")
 	a.aheadLabel.AddCSSClass("ahead-behind")
+	a.aheadLabel.SetMarginEnd(8)
+
 	a.statsLabel = gtk.NewLabel("")
 
 	box.Append(a.branchLabel)
@@ -1381,7 +1499,13 @@ func (a *App) populateCommits() {
 	filter := strings.ToLower(strings.TrimSpace(a.searchEntry.Text()))
 	count := 0
 
-	for _, c := range a.state.Commits {
+	// Pre-calculate graph info if no filter is applied
+	var graphInfos []CommitGraphInfo
+	if filter == "" {
+		graphInfos = ComputeGraphInfo(a.state.Commits)
+	}
+
+	for i, c := range a.state.Commits {
 		if filter != "" && c.IsCommit {
 			if !strings.Contains(strings.ToLower(c.Subject+" "+c.Author+" "+c.ShortHash), filter) {
 				continue
@@ -1395,10 +1519,20 @@ func (a *App) populateCommits() {
 		box := gtk.NewBox(gtk.OrientationHorizontal, 8)
 		box.AddCSSClass("commit-row-box")
 
-		graph := gtk.NewLabel(c.Graph)
-		graph.SetXAlign(0)
-		graph.AddCSSClass("commit-graph")
-		box.Append(graph)
+		if filter == "" && i < len(graphInfos) {
+			info := graphInfos[i]
+			graphArea := gtk.NewDrawingArea()
+			graphArea.SetContentWidth(int(float64(len(info.Lanes)+1) * 14.0))
+			graphArea.SetDrawFunc(func(_ *gtk.DrawingArea, cr *cairo.Context, width, height int) {
+				DrawGraph(cr, info, float64(width), float64(height))
+			})
+			box.Append(graphArea)
+		} else {
+			graph := gtk.NewLabel(c.Graph)
+			graph.SetXAlign(0)
+			graph.AddCSSClass("commit-graph")
+			box.Append(graph)
+		}
 
 		if !c.IsCommit {
 			row.SetSelectable(false)
@@ -1459,6 +1593,36 @@ func (a *App) populateCommits() {
 			a.markSelectedRow(a.commitListBox, row)
 		})
 		row.AddController(click)
+
+		// Right-click context menu
+		rightClick := gtk.NewGestureClick()
+		rightClick.SetButton(3)
+		rightClick.ConnectReleased(func(_ int, x, y float64) {
+			a.showCommitContextMenu(row, c)
+		})
+		row.AddController(rightClick)
+
+		// Drag and Drop for Rebase
+		src := gtk.NewDragSource()
+		src.ConnectDragBegin(func(_ gdk.Dragger) {
+			// Mark as dragging
+		})
+		src.ConnectPrepare(func(_, _ float64) *gdk.ContentProvider {
+			return gdk.NewContentProviderForValue(glib.NewValue(c.Hash))
+		})
+		row.AddController(src)
+
+		target := gtk.NewDropTarget(glib.TypeString, gdk.ActionCopy)
+		target.ConnectDrop(func(val *glib.Value, _, _ float64) bool {
+			srcHash := val.String()
+			if srcHash == "" || srcHash == c.Hash {
+				return false
+			}
+			a.showRebaseConfirmPopover(row, srcHash, c.Hash)
+			return true
+		})
+		row.AddController(target)
+
 		a.commitListBox.Append(row)
 		count++
 	}
@@ -1466,6 +1630,95 @@ func (a *App) populateCommits() {
 	if count == 0 && filter != "" {
 		a.commitListBox.Append(a.makePlaceholderRow("No commits match"))
 	}
+}
+
+func (a *App) showRebaseConfirmPopover(relativeTo gtk.Widgetter, srcHash, destHash string) {
+	pop := gtk.NewPopover()
+	pop.SetParent(relativeTo)
+	pop.SetPosition(gtk.PosBottom)
+
+	box := gtk.NewBox(gtk.OrientationVertical, 8)
+	box.SetMarginTop(8)
+	box.SetMarginBottom(8)
+	box.SetMarginStart(8)
+	box.SetMarginEnd(8)
+
+	lbl := gtk.NewLabel(fmt.Sprintf("Rebase onto %s?", destHash[:7]))
+	lbl.AddCSSClass("bold")
+	box.Append(lbl)
+
+	msg := gtk.NewLabel(fmt.Sprintf("Move changes from %s to %s", srcHash[:7], destHash[:7]))
+	msg.AddCSSClass("dim")
+	box.Append(msg)
+
+	btnRow := gtk.NewBox(gtk.OrientationHorizontal, 6)
+	btnRow.SetHAlign(gtk.AlignEnd)
+
+	cancelBtn := gtk.NewButtonWithLabel("Cancel")
+	cancelBtn.ConnectClicked(func() { pop.Popdown() })
+	btnRow.Append(cancelBtn)
+
+	confirmBtn := gtk.NewButtonWithLabel("Confirm Rebase")
+	confirmBtn.AddCSSClass("suggested-action")
+	confirmBtn.ConnectClicked(func() {
+		pop.Popdown()
+		a.runGitOp("Rebasing...", "Rebase complete", func(repo string) error {
+			return RebaseCommit(repo, destHash)
+		})
+	})
+	btnRow.Append(confirmBtn)
+	box.Append(btnRow)
+
+	pop.SetChild(box)
+	pop.Popup()
+}
+
+func (a *App) showCommitContextMenu(relativeTo gtk.Widgetter, c Commit) {
+	pop := gtk.NewPopover()
+	pop.SetParent(relativeTo)
+	pop.SetPosition(gtk.PosBottom)
+
+	box := gtk.NewBox(gtk.OrientationVertical, 0)
+
+	actions := []struct {
+		label string
+		fn    func()
+	}{
+		{"Checkout " + c.ShortHash, func() {
+			a.runGitOp("Checking out...", "Checked out "+c.ShortHash, func(repo string) error {
+				return CheckoutCommit(repo, c.Hash)
+			})
+		}},
+		{"Cherry-pick", func() {
+			a.runGitOp("Cherry-picking...", "Cherry-picked "+c.ShortHash, func(repo string) error {
+				return CherryPickCommit(repo, c.Hash)
+			})
+		}},
+		{"Reset Soft", func() {
+			a.runGitOp("Resetting...", "Reset soft to "+c.ShortHash, func(repo string) error {
+				return ResetCommit(repo, c.Hash, false)
+			})
+		}},
+		{"Reset Hard", func() {
+			a.runGitOp("Resetting...", "Reset hard to "+c.ShortHash, func(repo string) error {
+				return ResetCommit(repo, c.Hash, true)
+			})
+		}},
+	}
+
+	for _, act := range actions {
+		act := act
+		btn := gtk.NewButtonWithLabel(act.label)
+		btn.AddCSSClass("flat")
+		btn.ConnectClicked(func() {
+			pop.Popdown()
+			act.fn()
+		})
+		box.Append(btn)
+	}
+
+	pop.SetChild(box)
+	pop.Popup()
 }
 
 func (a *App) buildRefLabel(ref string) *gtk.Widget {
@@ -2201,12 +2454,14 @@ func (a *App) updateStatusStrip() {
 		}
 	}
 
-	a.branchLabel.SetText(" " + a.state.Branch)
+	a.branchLabel.SetText(a.state.Branch)
 
 	if a.state.Ahead > 0 || a.state.Behind > 0 {
 		a.aheadLabel.SetText(fmt.Sprintf("↑%d ↓%d", a.state.Ahead, a.state.Behind))
+		a.aheadLabel.SetVisible(true)
 	} else {
 		a.aheadLabel.SetText("")
+		a.aheadLabel.SetVisible(false)
 	}
 
 	var parts []string
@@ -2219,7 +2474,11 @@ func (a *App) updateStatusStrip() {
 	if n := len(a.state.Stashes); n > 0 {
 		parts = append(parts, strconv.Itoa(n)+" stashed")
 	}
-	a.statsLabel.SetText(strings.Join(parts, " · "))
+	if len(parts) > 0 {
+		a.statsLabel.SetText("· " + strings.Join(parts, " · "))
+	} else {
+		a.statsLabel.SetText("")
+	}
 }
 
 func (a *App) updateCommitButton() {
@@ -2241,52 +2500,136 @@ func (a *App) updateCommitButton() {
 // ── Diff ──────────────────────────────────────────────────────────
 
 func (a *App) renderDiff(diff string) {
+	if a.showSplit {
+		a.diffView.SetVisible(false)
+		a.splitView.SetVisible(true)
+		a.renderSplitDiff(diff)
+	} else {
+		a.diffView.SetVisible(true)
+		a.splitView.SetVisible(false)
+		a.renderUnifiedDiff(diff)
+	}
+}
+
+func (a *App) renderUnifiedDiff(diff string) {
 	a.diffBuf.SetText("")
+	a.setupDiffTags(a.diffBuf)
 	if strings.TrimSpace(diff) == "" {
 		a.diffBuf.SetText("No changes to display")
 		return
 	}
 
-	tt := a.diffBuf.TagTable()
-	ensure := func(name, fg string) {
+	for _, line := range strings.Split(diff, "\n") {
+		tag := a.getDiffTag(line)
+		iter := a.diffBuf.EndIter()
+		offset := iter.Offset()
+		a.diffBuf.Insert(iter, line+"\n")
+
+		if tag != "normal" {
+			start := a.diffBuf.IterAtOffset(offset)
+			end := a.diffBuf.EndIter()
+			a.diffBuf.ApplyTagByName(tag, start, end)
+			if tag == "added" || tag == "removed" {
+				charStart := a.diffBuf.IterAtOffset(offset)
+				charEnd := a.diffBuf.IterAtOffset(offset + 1)
+				a.diffBuf.ApplyTagByName(tag+"-char", charStart, charEnd)
+			}
+		}
+	}
+}
+
+func (a *App) renderSplitDiff(diff string) {
+	a.diffBufLeft.SetText("")
+	a.diffBufRight.SetText("")
+	a.setupDiffTags(a.diffBufLeft)
+	a.setupDiffTags(a.diffBufRight)
+
+	if strings.TrimSpace(diff) == "" {
+		return
+	}
+
+	lines := strings.Split(diff, "\n")
+	for _, line := range lines {
+		tag := a.getDiffTag(line)
+		iterL := a.diffBufLeft.EndIter()
+		iterR := a.diffBufRight.EndIter()
+		offL := iterL.Offset()
+		offR := iterR.Offset()
+
+		if tag == "added" {
+			a.diffBufLeft.Insert(iterL, "\n")
+			a.diffBufRight.Insert(iterR, line[1:]+"\n")
+			startR := a.diffBufRight.IterAtOffset(offR)
+			endR := a.diffBufRight.EndIter()
+			a.diffBufRight.ApplyTagByName("added", startR, endR)
+		} else if tag == "removed" {
+			a.diffBufLeft.Insert(iterL, line[1:]+"\n")
+			startL := a.diffBufLeft.IterAtOffset(offL)
+			endL := a.diffBufLeft.EndIter()
+			a.diffBufLeft.ApplyTagByName("removed", startL, endL)
+			a.diffBufRight.Insert(iterR, "\n")
+		} else if tag == "hunk" || tag == "header" {
+			a.diffBufLeft.Insert(iterL, line+"\n")
+			startL := a.diffBufLeft.IterAtOffset(offL)
+			endL := a.diffBufLeft.EndIter()
+			a.diffBufLeft.ApplyTagByName(tag, startL, endL)
+
+			a.diffBufRight.Insert(iterR, line+"\n")
+			startR := a.diffBufRight.IterAtOffset(offR)
+			endR := a.diffBufRight.EndIter()
+			a.diffBufRight.ApplyTagByName(tag, startR, endR)
+		} else {
+			text := line
+			if len(line) > 0 && (line[0] == ' ' || line[0] == '\t') {
+				text = line[1:]
+			}
+			a.diffBufLeft.Insert(iterL, text+"\n")
+			a.diffBufRight.Insert(iterR, text+"\n")
+		}
+	}
+}
+
+func (a *App) getDiffTag(line string) string {
+	switch {
+	case strings.HasPrefix(line, "diff "), strings.HasPrefix(line, "index "),
+		strings.HasPrefix(line, "+++ "), strings.HasPrefix(line, "--- "):
+		return "header"
+	case strings.HasPrefix(line, "@@"):
+		return "hunk"
+	case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
+		return "added"
+	case strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---"):
+		return "removed"
+	case strings.HasPrefix(line, "rename "), strings.HasPrefix(line, "similarity "):
+		return "modified"
+	default:
+		return "normal"
+	}
+}
+
+func (a *App) setupDiffTags(buf *gtk.TextBuffer) {
+	tt := buf.TagTable()
+	ensure := func(name, fg, bg string) {
 		if tt.Lookup(name) != nil {
 			return
 		}
 		tag := gtk.NewTextTag(name)
-		tag.SetObjectProperty("foreground", fg)
+		if fg != "" {
+			tag.SetObjectProperty("foreground", fg)
+		}
+		if bg != "" {
+			tag.SetObjectProperty("background", bg)
+		}
 		tt.Add(tag)
 	}
-	ensure("added", a.cfg.Colors.Added)
-	ensure("removed", a.cfg.Colors.Removed)
-	ensure("header", a.cfg.Colors.Accent)
-	ensure("hunk", a.cfg.Colors.TextDim)
-	ensure("normal", a.cfg.Colors.Text)
-	ensure("modified", a.cfg.Colors.Modified)
-
-	for _, line := range strings.Split(diff, "\n") {
-		start := a.diffBuf.EndIter()
-		a.diffBuf.Insert(start, line+"\n")
-		end := a.diffBuf.EndIter()
-
-		tag := "normal"
-		switch {
-		case strings.HasPrefix(line, "diff "), strings.HasPrefix(line, "index "),
-			strings.HasPrefix(line, "+++ "), strings.HasPrefix(line, "--- "):
-			tag = "header"
-		case strings.HasPrefix(line, "@@"):
-			tag = "hunk"
-		case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
-			tag = "added"
-		case strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---"):
-			tag = "removed"
-		case strings.HasPrefix(line, "rename "), strings.HasPrefix(line, "similarity "):
-			tag = "modified"
-		}
-
-		lineStart := *end
-		lineStart.BackwardChars(len([]rune(line + "\n")))
-		a.diffBuf.ApplyTagByName(tag, &lineStart, end)
-	}
+	ensure("added", a.cfg.Colors.Added, "")
+	ensure("removed", a.cfg.Colors.Removed, "")
+	ensure("added-char", "#4ade80", "")   // Bright green char
+	ensure("removed-char", "#f87171", "") // Bright red char
+	ensure("header", a.cfg.Colors.Accent, "")
+	ensure("hunk", a.cfg.Colors.TextDim, "")
+	ensure("normal", a.cfg.Colors.Text, "")
+	ensure("modified", a.cfg.Colors.Modified, "")
 }
 
 func (a *App) nextDiffRequestID() uint64 {
@@ -2297,6 +2640,7 @@ func (a *App) loadFileDiff(path string, staged bool) {
 	if a.state == nil {
 		return
 	}
+	a.commitHeader.SetVisible(false)
 	if !a.cfg.Features.AsyncDiffLoading {
 		a.renderDiff(GetFileDiff(a.state.Path, path, staged))
 		return
@@ -2318,6 +2662,24 @@ func (a *App) loadCommitDiff(hash string) {
 	if a.state == nil {
 		return
 	}
+
+	// Find the commit in state to populate header
+	var commit *Commit
+	for i := range a.state.Commits {
+		if a.state.Commits[i].Hash == hash {
+			commit = &a.state.Commits[i]
+			break
+		}
+	}
+
+	if commit != nil {
+		a.commitAuthor.SetText(fmt.Sprintf("%s <%s>", commit.Author, commit.AuthorEmail))
+		a.commitHashFull.SetText(commit.Hash)
+		a.commitDateFull.SetText(commit.Date.Format("Mon Jan 2 15:04:05 2006 -0700"))
+		a.commitSubjectBold.SetText(commit.Subject)
+		a.commitHeader.SetVisible(true)
+	}
+
 	if !a.cfg.Features.AsyncDiffLoading {
 		a.renderDiff(GetCommitDiff(a.state.Path, hash))
 		return

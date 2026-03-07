@@ -12,15 +12,17 @@ import (
 )
 
 type Commit struct {
-	Hash      string
-	ShortHash string
-	Subject   string
-	Author    string
-	Date      time.Time
-	DateRel   string
-	Graph     string
-	RefNames  string
-	IsCommit  bool
+	Hash        string
+	ShortHash   string
+	Subject     string
+	Author      string
+	AuthorEmail string
+	Date        time.Time
+	DateRel     string
+	Graph       string
+	RefNames    string
+	IsCommit    bool
+	Parents     []string
 }
 
 type FileStatus struct {
@@ -326,7 +328,7 @@ func GetLog(repoPath string, max int) []Commit {
 		"--all",
 		fmt.Sprintf("--max-count=%d", max),
 		"--date=iso-strict",
-		"--format=§%H§%h§%s§%an§%aI§%ar§%D",
+		"--format=§%H§%h§%s§%an§%ae§%aI§%ar§%D§%P",
 	)
 	if err != nil {
 		return nil
@@ -339,8 +341,8 @@ func GetLog(repoPath string, max int) []Commit {
 			continue
 		}
 
-		parts := strings.SplitN(line, "§", 8)
-		if len(parts) < 8 {
+		parts := strings.SplitN(line, "§", 10)
+		if len(parts) < 10 {
 			commits = append(commits, Commit{
 				Graph:    line,
 				IsCommit: false,
@@ -349,19 +351,26 @@ func GetLog(repoPath string, max int) []Commit {
 		}
 
 		graph := parts[0]
-		t, _ := time.Parse(time.RFC3339, parts[5])
+		t, _ := time.Parse(time.RFC3339, parts[6])
 
-		commits = append(commits, Commit{
-			Hash:      parts[1],
-			ShortHash: parts[2],
-			Subject:   parts[3],
-			Author:    parts[4],
-			Date:      t,
-			DateRel:   parts[6],
-			RefNames:  parts[7],
-			Graph:     graph,
-			IsCommit:  true,
-		})
+		c := Commit{
+			Hash:        parts[1],
+			ShortHash:   parts[2],
+			Subject:     parts[3],
+			Author:      parts[4],
+			AuthorEmail: parts[5],
+			Date:        t,
+			DateRel:     parts[7],
+			RefNames:    parts[8],
+			Graph:       graph,
+			IsCommit:    true,
+		}
+
+		if pStr := strings.TrimSpace(parts[9]); pStr != "" {
+			c.Parents = strings.Split(pStr, " ")
+		}
+
+		commits = append(commits, c)
 	}
 
 	return commits
@@ -487,7 +496,7 @@ func GetFileDiff(repoPath, filePath string, staged bool) string {
 }
 
 func GetCommitDiff(repoPath, hash string) string {
-	out, err := gitCmd(repoPath, "show", "--no-color", "--format=medium", hash)
+	out, err := gitCmd(repoPath, "show", "--no-color", "--patch", "-s", "--format=", hash)
 	if err != nil {
 		return ""
 	}
@@ -718,4 +727,27 @@ func OpenInEditor(repoPath, filePath, editorCmd string) {
 	// Run detached
 	cmd := exec.Command("sh", "-c", fmt.Sprintf("%s %s", editorCmd, filepath.Join(repoPath, filePath)))
 	cmd.Start()
+}
+func CheckoutCommit(repoPath, hash string) error {
+	_, err := gitCmd(repoPath, "checkout", hash)
+	return err
+}
+
+func CherryPickCommit(repoPath, hash string) error {
+	_, err := gitCmd(repoPath, "cherry-pick", hash)
+	return err
+}
+
+func ResetCommit(repoPath, hash string, hard bool) error {
+	mode := "--soft"
+	if hard {
+		mode = "--hard"
+	}
+	_, err := gitCmd(repoPath, "reset", mode, hash)
+	return err
+}
+
+func RebaseCommit(repoPath, hash string) error {
+	_, err := gitCmd(repoPath, "rebase", hash)
+	return err
 }

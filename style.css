@@ -441,11 +441,21 @@ stackswitcher button label {
   border-top: 1px solid @border;
 }
 
-textview,
-textview > text,
-.diff-view,
-.diff-view > text {
-  background-color: @bg;
+.diff-toolbar {
+  background-color: @surface;
+  border-bottom: 1px solid @border;
+  min-height: 36px;
+}
+
+.diff-toggle-btn {
+  font-size: 0.9em;
+  font-weight: 500;
+  color: @text_dim;
+  padding: 0 16px;
+  min-height: 36px;
+}
+
+.diff-toggle-btn:hover {
   color: @text;
 }
 
@@ -457,6 +467,10 @@ textview > text,
   padding: 0 14px;
   font-size: 0.76em;
   color: @text_dim;
+}
+
+.status-strip box {
+  background-color: transparent !important;
 }
 
 .commit-strip {
@@ -677,3 +691,60 @@ row.section-header:hover {
    ═══════════════════════════════════════════════════════════════ */
 .info-ok  { color: @added;   background-color: transparent; }
 .info-err { color: @removed; background-color: transparent; }
+
+/* ── Commit Details Table ────────────────────────────────────── */
+.commit-details-table {
+  background-color: @surface;
+}
+
+.commit-details-table separator {
+  opacity: 0.4;
+}
+
+.commit-details-row {
+  padding: 10px 20px;
+}
+
+.commit-details-author {
+  font-size: 0.95em;
+  font-weight: 500;
+  color: @text;
+}
+
+.commit-details-hash {
+  font-family: monospace;
+  font-size: 0.88em;
+  color: alpha(@accent, 0.85);
+}
+
+.commit-details-date {
+  font-size: 0.82em;
+  color: @text_dim;
+}
+
+.commit-details-subject {
+  font-size: 1.15em;
+  font-weight: 700;
+  color: @text;
+}
+
+textview,
+textview > text,
+.diff-view,
+.diff-view > text {
+  background-color: @bg;
+  color: @text;
+}
+
+/* ── Split Diff View ─────────────────────────────────────────── */
+.diff-view-split {
+  background-color: @bg;
+  color: @text;
+  font-size: 0.9em;
+  padding: 8px;
+}
+
+.diff-view-split:first-child {
+  border-right: 1px solid @border;
+}
+
