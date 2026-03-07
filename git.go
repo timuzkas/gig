@@ -80,11 +80,54 @@ func gitCmd(repoPath string, args ...string) (string, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("%s: %s", err, strings.TrimSpace(stderr.String()))
+	start := time.Now()
+	err := cmd.Run()
+	duration := time.Since(start)
+
+	stdoutStr := strings.TrimSpace(stdout.String())
+	stderrStr := strings.TrimSpace(stderr.String())
+
+	// Log the command
+	logGitOp(repoPath, args, err, stdoutStr, stderrStr, duration)
+
+	if err != nil {
+		if stderrStr != "" {
+			return "", fmt.Errorf("%s", stderrStr)
+		}
+		return "", err
 	}
 
-	return strings.TrimSpace(stdout.String()), nil
+	return stdoutStr, nil
+}
+
+func logGitOp(repoPath string, args []string, err error, stdout, stderr string, duration time.Duration) {
+	f, lerr := os.OpenFile("gig.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if lerr != nil {
+		return
+	}
+	defer f.Close()
+
+	status := "OK"
+	if err != nil {
+		status = "ERR"
+	}
+
+	cmdStr := "git " + strings.Join(args, " ")
+	logLine := fmt.Sprintf("[%s] [%s] [%s] [%v] %s\n",
+		time.Now().Format("2006-01-02 15:04:05"),
+		status,
+		repoPath,
+		duration.Round(time.Millisecond),
+		cmdStr,
+	)
+	f.WriteString(logLine)
+
+	if err != nil {
+		f.WriteString(fmt.Sprintf("  Error: %v\n", err))
+		if stderr != "" {
+			f.WriteString(fmt.Sprintf("  Stderr: %s\n", stderr))
+		}
+	}
 }
 
 func IsGitRepo(path string) bool {
@@ -101,15 +144,25 @@ func FindRepoRoot(path string) (string, error) {
 }
 
 func GetCurrentBranch(repoPath string) string {
+	// 1. Try modern way
 	out, err := gitCmd(repoPath, "branch", "--show-current")
 	if err == nil && out != "" {
 		return out
 	}
-	head, err := gitCmd(repoPath, "rev-parse", "--short", "HEAD")
-	if err != nil {
-		return "unknown"
+
+	// 2. Fallback for detached heads or older git versions
+	out, err = gitCmd(repoPath, "rev-parse", "--abbrev-ref", "HEAD")
+	if err == nil && out != "HEAD" {
+		return out
 	}
-	return "(detached " + head + ")"
+
+	// 3. Last resort: get the hash or "detached"
+	out, err = gitCmd(repoPath, "rev-parse", "--short", "HEAD")
+	if err == nil {
+		return "(detached at " + out + ")"
+	}
+
+	return "unknown"
 }
 
 func GetBranches(repoPath string) []BranchInfo {

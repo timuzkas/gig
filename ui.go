@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gio/v2"
@@ -74,6 +75,9 @@ type App struct {
 
 	branchDropBound bool
 	diffReqID       uint64
+
+	branchDropUpdating bool
+	infoStickyUntil    time.Time
 }
 
 func NewApp(cfg Config) *App {
@@ -236,6 +240,102 @@ func (a *App) buildOverlayCard(title string, width int, content gtk.Widgetter, e
 	wrap.Append(content)
 	card.Append(wrap)
 	return card
+}
+
+func (a *App) gitErrorDialog(title, errMsg string) {
+	content := gtk.NewBox(gtk.OrientationVertical, 16)
+	content.SetMarginTop(20)
+	content.SetMarginBottom(20)
+	content.SetMarginStart(20)
+	content.SetMarginEnd(20)
+
+	// Header/Intro
+	intro := "An error occurred during git operation."
+	var files []string
+	
+	// Parse checkout/merge conflicts
+	if strings.Contains(errMsg, "overwritten by checkout") || strings.Contains(errMsg, "overwritten by merge") {
+		intro = "Local changes would be overwritten. Please commit or stash them:"
+		lines := strings.Split(errMsg, "\n")
+		for _, l := range lines {
+			l = strings.TrimSpace(l)
+			if l == "" || strings.HasPrefix(l, "error:") || strings.HasPrefix(l, "Please") || strings.HasPrefix(l, "Aborting") {
+				continue
+			}
+			files = append(files, l)
+		}
+	}
+
+	introLbl := gtk.NewLabel(intro)
+	introLbl.SetXAlign(0)
+	introLbl.SetWrap(true)
+	introLbl.AddCSSClass("dim")
+	content.Append(introLbl)
+
+	if len(files) > 0 {
+		fileList := gtk.NewBox(gtk.OrientationVertical, 4)
+		fileList.SetMarginStart(12)
+		for _, f := range files {
+			row := gtk.NewBox(gtk.OrientationHorizontal, 8)
+			icon := gtk.NewLabel("•")
+			icon.AddCSSClass("status-removed")
+			name := gtk.NewLabel(f)
+			name.AddCSSClass("repo-name")
+			row.Append(icon)
+			row.Append(name)
+			fileList.Append(row)
+		}
+		content.Append(fileList)
+	} else {
+		// Fallback for generic errors
+		scroll := gtk.NewScrolledWindow()
+		scroll.SetMinContentHeight(100)
+		scroll.SetMaxContentHeight(300)
+		
+		errLbl := gtk.NewLabel(errMsg)
+		errLbl.SetXAlign(0)
+		errLbl.SetWrap(true)
+		errLbl.SetSelectable(true)
+		errLbl.AddCSSClass("status-removed")
+		scroll.SetChild(errLbl)
+		content.Append(scroll)
+	}
+
+	btnRow := gtk.NewBox(gtk.OrientationHorizontal, 12)
+	btnRow.SetHAlign(gtk.AlignEnd)
+	btnRow.SetMarginTop(10)
+
+	stashBtn := gtk.NewButtonWithLabel("Stash & Continue")
+	stashBtn.AddCSSClass("suggested-action")
+	stashBtn.ConnectClicked(func() {
+		a.hideOverlay()
+		a.setInfo("Stashing changes…")
+		go func() {
+			err := StashSave(a.state.Path, "Auto-stash before checkout")
+			glib.IdleAdd(func() {
+				if err != nil {
+					a.setInfoErr(err.Error())
+					return
+				}
+				a.setInfoOk("Stashed. Retrying checkout…")
+				// We don't easily know the target branch here without more state, 
+				// but usually the user will just try again.
+				a.doReload(true)
+			})
+		}()
+	})
+
+	closeBtn := gtk.NewButtonWithLabel("Close")
+	closeBtn.ConnectClicked(func() { a.hideOverlay() })
+	
+	if len(files) > 0 {
+		btnRow.Append(stashBtn)
+	}
+	btnRow.Append(closeBtn)
+	content.Append(btnRow)
+
+	card := a.buildOverlayCard(title, 480, content)
+	a.showOverlay(card)
 }
 
 // confirmDialog — replaces all gtk.Dialog destructive confirmations
@@ -518,6 +618,8 @@ func (a *App) buildContentArea() *gtk.Box {
 	a.infoLabel = gtk.NewLabel("")
 	a.infoLabel.SetXAlign(1)
 	a.infoLabel.AddCSSClass("dim")
+	a.infoLabel.SetEllipsize(3)      // EllipsizeEnd
+	a.infoLabel.SetMaxWidthChars(60) // Prevent it from pushing everything
 	infoBar.Append(a.infoLabel)
 
 	box.Append(infoBar)
@@ -683,30 +785,39 @@ func (a *App) setInfo(t string) {
 	if a.infoLabel == nil {
 		return
 	}
-	a.infoLabel.SetText(t)
+	clean := strings.ReplaceAll(t, "\n", " ")
+	a.infoLabel.SetText(clean)
+	a.infoLabel.SetTooltipText(t)
 	a.infoLabel.RemoveCSSClass("info-ok")
 	a.infoLabel.RemoveCSSClass("info-err")
 	a.infoLabel.AddCSSClass("dim")
+	a.infoStickyUntil = time.Now().Add(5 * time.Second)
 }
 
 func (a *App) setInfoOk(t string) {
 	if a.infoLabel == nil {
 		return
 	}
-	a.infoLabel.SetText(t)
+	clean := strings.ReplaceAll(t, "\n", " ")
+	a.infoLabel.SetText(clean)
+	a.infoLabel.SetTooltipText(t)
 	a.infoLabel.RemoveCSSClass("dim")
 	a.infoLabel.RemoveCSSClass("info-err")
 	a.infoLabel.AddCSSClass("info-ok")
+	a.infoStickyUntil = time.Now().Add(5 * time.Second)
 }
 
 func (a *App) setInfoErr(t string) {
 	if a.infoLabel == nil {
 		return
 	}
-	a.infoLabel.SetText(t)
+	clean := strings.ReplaceAll(t, "\n", " ")
+	a.infoLabel.SetText(clean)
+	a.infoLabel.SetTooltipText(t)
 	a.infoLabel.RemoveCSSClass("dim")
 	a.infoLabel.RemoveCSSClass("info-ok")
 	a.infoLabel.AddCSSClass("info-err")
+	a.infoStickyUntil = time.Now().Add(10 * time.Second)
 }
 
 func (a *App) doReload(showDefault bool) {
@@ -820,9 +931,11 @@ func (a *App) applyState(ns *RepoState, showDefault bool) {
 	a.state = ns
 
 	if branchesChanged {
-		a.bindBranchDrop()
 		a.populateBranches()
 	}
+
+	a.syncBranchDrop()
+	
 	if filesChanged {
 		a.populateFiles()
 	}
@@ -916,56 +1029,109 @@ func (a *App) stashesChanged(ns []StashEntry) bool {
 // ── Branch dropdown ───────────────────────────────────────────────
 
 func (a *App) bindBranchDrop() {
-	if a.state == nil {
-		return
-	}
-	var local []BranchInfo
-	for _, b := range a.state.Branches {
-		if !b.IsRemote {
-			local = append(local, b)
-		}
-	}
-	names := make([]string, 0, len(local))
-	cur := uint(0)
-	for i, b := range local {
-		names = append(names, b.Name)
-		if b.Current {
-			cur = uint(i)
-		}
-	}
-	a.branchDrop.SetModel(gtk.NewStringList(names))
-	if len(names) > 0 {
-		a.branchDrop.SetSelected(cur)
-	}
-	if a.branchDropBound {
-		return
-	}
-	a.branchDropBound = true
-	a.branchDrop.Connect("notify::selected", func() {
-		if a.state == nil {
+    // This now only handles the initial signal connection
+    if a.branchDropBound {
+        return
+    }
+    a.branchDropBound = true
+
+    a.branchDrop.Connect("notify::selected", func() {
+        if a.branchDropUpdating || a.state == nil {
+            return
+        }
+
+        sel := a.branchDrop.Selected()
+        if sel == gtk.InvalidListPosition {
 			return
 		}
-		sel := int(a.branchDrop.Selected())
-		if sel < 0 || sel >= len(names) {
-			return
-		}
-		target := names[sel]
-		if target == a.state.Branch {
-			return
-		}
-		a.setInfo("Switching to " + target + "…")
-		go func(repo, branch string) {
-			err := Checkout(repo, branch)
-			glib.IdleAdd(func() {
-				if err != nil {
-					a.setInfoErr(err.Error())
-				} else {
-					a.setInfoOk("On " + branch)
-				}
-				a.doReload(true)
-			})
-		}(a.state.Path, target)
-	})
+
+        modelObj := a.branchDrop.Model()
+        if modelObj == nil {
+            return
+        }
+        
+        // Get the string value from the model
+        stringList := modelObj.Cast().(*gtk.StringList)
+        target := stringList.String(sel)
+
+        if target == "" || target == a.state.Branch {
+            return
+        }
+
+        a.setInfo("Switching to " + target + "…")
+        go func(repo, branch string) {
+            err := Checkout(repo, branch)
+            glib.IdleAdd(func() {
+                if err != nil {
+                    a.setInfoErr(err.Error())
+					a.gitErrorDialog("Checkout Failed", err.Error())
+                } else {
+                    a.setInfoOk("On " + branch)
+                }
+                a.doReload(true)
+            })
+        }(a.state.Path, target)
+    })
+}
+
+func (a *App) syncBranchDrop() {
+    if a.state == nil {
+        return
+    }
+
+    // 1. Collect local branches
+    var localNames []string
+    var curIdx uint = 0
+    found := false
+
+    for _, b := range a.state.Branches {
+        if !b.IsRemote {
+            if b.Name == a.state.Branch {
+                curIdx = uint(len(localNames))
+                found = true
+            }
+            localNames = append(localNames, b.Name)
+        }
+    }
+
+    // 2. Update the model only if the list of names changed
+    // (This prevents the dropdown from closing/flickering if it's open)
+    a.branchDropUpdating = true
+    
+    // Simple check: does the current model match our localNames?
+    shouldUpdateModel := true
+    if currentModel := a.branchDrop.Model(); currentModel != nil {
+        sl := currentModel.Cast().(*gtk.StringList)
+        if sl.NItems() == uint(len(localNames)) {
+            match := true
+            for i, name := range localNames {
+                if sl.String(uint(i)) != name {
+                    match = false
+                    break
+                }
+            }
+            if match {
+                shouldUpdateModel = false
+            }
+        }
+    }
+
+    if shouldUpdateModel {
+        a.branchDrop.SetModel(gtk.NewStringList(localNames))
+    }
+
+    // 3. Sync the selection
+    if found {
+        a.branchDrop.SetSelected(curIdx)
+    }
+
+    // 4. Release guard
+    glib.IdleAdd(func() {
+        a.branchDropUpdating = false
+    })
+    
+    // Ensure signals are bound
+    a.bindBranchDrop()
 }
 
 // ── File list ─────────────────────────────────────────────────────
@@ -1450,6 +1616,7 @@ func (a *App) appendBranchSection(title string, branches []BranchInfo) {
 					glib.IdleAdd(func() {
 						if err != nil {
 							a.setInfoErr(err.Error())
+							a.gitErrorDialog("Checkout Failed", err.Error())
 						} else {
 							a.setInfoOk("On " + branch)
 						}
@@ -1982,6 +2149,10 @@ func (a *App) updateHeaderInfo() {
 	}
 	a.repoTitle.SetText(a.state.Name)
 	a.repoPath.SetText(a.state.Path)
+
+	if time.Now().Before(a.infoStickyUntil) {
+		return
+	}
 
 	var parts []string
 	if n := len(a.state.Branches); n > 0 {

@@ -451,7 +451,7 @@ textview > text,
 
 /* ── Status and commit strips ─────────────────────────────────── */
 .status-strip {
-  background-color: @surface2;
+  background-color: @surface;
   border-top: 1px solid @border;
   min-height: 26px;
   padding: 0 14px;
@@ -460,7 +460,7 @@ textview > text,
 }
 
 .commit-strip {
-  background-color: @surface2;
+  background-color: @surface;
   border-top: 1px solid @border;
   min-height: 48px;
   padding: 7px 10px;
@@ -625,19 +625,23 @@ row.section-header:hover {
   background-color: @surface;
   border: 1px solid @border;
   box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+  border-radius: 8px;
 }
 
 .overlay-header {
-  background-color: @surface2;
+  background-color: @surface;
   border-bottom: 1px solid @border;
-  padding: 10px 14px;
+  padding: 12px 16px;
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
 }
 
 .overlay-close-btn {
-  font-size: 3.4em !important;
+  font-size: 1.2em !important;
   font-weight: bold !important;
-  min-width: 40px !important;
-  min-height: 40px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  margin: -4px;
 }
 
 .overlay-header label {
@@ -645,13 +649,13 @@ row.section-header:hover {
   font-size: 0.74em;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: @text_dim;
-  background-color: transparent;
+  color: @text;
 }
 
 /* Overlay inner content areas */
 .overlay-panel scrolledwindow,
-.overlay-panel scrolledwindow > viewport {
+.overlay-panel scrolledwindow > viewport,
+.overlay-panel .content-box {
   background-color: @surface;
 }
 
@@ -661,6 +665,11 @@ row.section-header:hover {
 .overlay-panel listbox row {
   background-color: transparent;
   color: @text;
+}
+
+.overlay-panel entry {
+  background-color: @bg;
+  border: 1px solid @border;
 }
 
 /* ═══════════════════════════════════════════════════════════════
