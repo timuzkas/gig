@@ -13,38 +13,52 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 )
 
-type App struct {
-	cfg Config
+// ── App struct ────────────────────────────────────────────────────
 
-	app *gtk.Application
-	win *gtk.ApplicationWindow
+type App struct {
+	cfg   Config
+	app   *gtk.Application
+	win   *gtk.ApplicationWindow
 
 	repos []RepoInfo
 	state *RepoState
 
+	// Layout
+	rootOverlay   *gtk.Overlay
+	overlayBox    *gtk.Box
+	overlayReveal *gtk.Revealer
+
+	// Lists
 	repoListBox   *gtk.ListBox
 	fileListBox   *gtk.ListBox
 	commitListBox *gtk.ListBox
 	branchListBox *gtk.ListBox
-	diffView      *gtk.TextView
-	diffBuf       *gtk.TextBuffer
+	stashListBox  *gtk.ListBox
 
+	// Diff
+	diffView *gtk.TextView
+	diffBuf  *gtk.TextBuffer
+
+	// Controls
 	searchEntry  *gtk.SearchEntry
 	branchSearch *gtk.SearchEntry
 	branchDrop   *gtk.DropDown
 	commitEntry  *gtk.Entry
 	commitButton *gtk.Button
 
+	// Labels
 	repoTitle   *gtk.Label
 	repoPath    *gtk.Label
-	branchLabel *gtk.Label
-	statsLabel  *gtk.Label
-	aheadLabel  *gtk.Label
-	emptyLabel  *gtk.Label
 	infoLabel   *gtk.Label
 	remoteLabel *gtk.Label
-	stack       *gtk.Stack
+	branchLabel *gtk.Label
+	aheadLabel  *gtk.Label
+	statsLabel  *gtk.Label
+	emptyLabel  *gtk.Label
 
+	stack *gtk.Stack
+
+	// Selection tracking
 	selectedRepoRow   *gtk.ListBoxRow
 	selectedFileRow   *gtk.ListBoxRow
 	selectedCommitRow *gtk.ListBoxRow
@@ -59,21 +73,18 @@ type App struct {
 }
 
 func NewApp(cfg Config) *App {
-	app := &App{cfg: cfg}
-	app.repos = DiscoverRepos(
-		cfg.Repos.Paths,
-		cfg.Behavior.ScanParentOnStart,
-	)
-	return app
+	a := &App{cfg: cfg}
+	a.repos = DiscoverRepos(cfg.Repos.Paths, cfg.Behavior.ScanParentOnStart)
+	return a
 }
 
 func (a *App) Run() {
 	a.app = gtk.NewApplication("dev.timuzkas.gig", gio.ApplicationFlagsNone)
-	a.app.ConnectActivate(func() {
-		a.build()
-	})
+	a.app.ConnectActivate(a.build)
 	a.app.Run(os.Args)
 }
+
+// ── Build ─────────────────────────────────────────────────────────
 
 func (a *App) build() {
 	a.loadCSS()
@@ -84,20 +95,19 @@ func (a *App) build() {
 	a.win.SetResizable(true)
 
 	root := gtk.NewBox(gtk.OrientationVertical, 0)
+	root.Append(a.buildHeader())
 
-	header := a.buildHeader()
-	root.Append(header)
-
+	a.rootOverlay = gtk.NewOverlay()
 	body := a.buildBody()
 	body.SetVExpand(true)
 	body.SetHExpand(true)
-	root.Append(body)
+	a.rootOverlay.SetChild(body)
+	a.buildOverlayPanel()
+	a.rootOverlay.AddOverlay(a.overlayBox)
+	root.Append(a.rootOverlay)
 
-	commitStrip := a.buildCommitStrip()
-	root.Append(commitStrip)
-
-	statusStrip := a.buildStatusStrip()
-	root.Append(statusStrip)
+	root.Append(a.buildCommitStrip())
+	root.Append(a.buildStatusStrip())
 
 	a.win.SetChild(root)
 	a.win.Present()
@@ -107,19 +117,12 @@ func (a *App) build() {
 	}
 
 	if a.cfg.Behavior.AutoRefresh {
-		glib.TimeoutAdd(
-			uint(a.cfg.Behavior.RefreshIntervalSec*1000),
-			func() bool {
-				if a.state != nil {
-					if a.cfg.Features.AsyncStateReload {
-						a.reloadStateAsync(false)
-					} else {
-						a.reloadState(false)
-					}
-				}
-				return true
-			},
-		)
+		glib.TimeoutAdd(uint(a.cfg.Behavior.RefreshIntervalSec*1000), func() bool {
+			if a.state != nil {
+				a.doReload(false)
+			}
+			return true
+		})
 	}
 }
 
@@ -128,9 +131,7 @@ func (a *App) loadCSS() {
 	if display == nil {
 		return
 	}
-
 	provider := gtk.NewCSSProvider()
-
 	cssVars := fmt.Sprintf(`
 @define-color bg %s;
 @define-color surface %s;
@@ -144,196 +145,266 @@ func (a *App) loadCSS() {
 @define-color modified %s;
 @define-color selection %s;
 
-* {
-  font-family: %s;
-  font-size: %dpt;
-}
+* { font-family: %s; font-size: %dpt; }
 `,
-		a.cfg.Colors.Bg,
-		a.cfg.Colors.Surface,
-		a.cfg.Colors.Surface2,
-		a.cfg.Colors.Border,
-		a.cfg.Colors.Text,
-		a.cfg.Colors.TextDim,
-		a.cfg.Colors.Accent,
-		a.cfg.Colors.Added,
-		a.cfg.Colors.Removed,
-		a.cfg.Colors.Modified,
-		a.cfg.Colors.Selection,
-		a.cfg.Appearance.FontFamily,
-		a.cfg.Appearance.FontSize,
+		a.cfg.Colors.Bg, a.cfg.Colors.Surface, a.cfg.Colors.Surface2,
+		a.cfg.Colors.Border, a.cfg.Colors.Text, a.cfg.Colors.TextDim,
+		a.cfg.Colors.Accent, a.cfg.Colors.Added, a.cfg.Colors.Removed,
+		a.cfg.Colors.Modified, a.cfg.Colors.Selection,
+		a.cfg.Appearance.FontFamily, a.cfg.Appearance.FontSize,
 	)
-
-	style, err := os.ReadFile("style.css")
-	if err == nil {
+	if style, err := os.ReadFile("style.css"); err == nil {
 		cssVars += string(style)
 	}
-
 	provider.LoadFromData(cssVars)
-	gtk.StyleContextAddProviderForDisplay(
-		display,
-		provider,
-		gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
-	)
+	gtk.StyleContextAddProviderForDisplay(display, provider, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 }
+
+// ── In-app overlay ────────────────────────────────────────────────
+
+func (a *App) buildOverlayPanel() {
+	a.overlayBox = gtk.NewBox(gtk.OrientationVertical, 0)
+	a.overlayBox.SetVAlign(gtk.AlignCenter)
+	a.overlayBox.SetHAlign(gtk.AlignCenter)
+	a.overlayBox.SetVExpand(true)
+	a.overlayBox.SetHExpand(true)
+	a.overlayBox.SetVisible(false)
+
+	a.overlayReveal = gtk.NewRevealer()
+	a.overlayReveal.SetTransitionType(gtk.RevealerTransitionTypeSlideUp)
+	a.overlayReveal.SetTransitionDuration(180)
+	a.overlayReveal.SetRevealChild(false)
+	a.overlayBox.Append(a.overlayReveal)
+}
+
+func (a *App) showOverlay(child gtk.Widgetter) {
+	if prev := a.overlayReveal.Child(); prev != nil {
+		a.overlayReveal.SetChild(nil)
+	}
+	a.overlayReveal.SetChild(child)
+	a.overlayBox.SetVisible(true)
+	glib.TimeoutAdd(16, func() bool {
+		a.overlayReveal.SetRevealChild(true)
+		return false
+	})
+}
+
+func (a *App) hideOverlay() {
+	a.overlayReveal.SetRevealChild(false)
+	glib.TimeoutAdd(200, func() bool {
+		a.overlayBox.SetVisible(false)
+		if prev := a.overlayReveal.Child(); prev != nil {
+			a.overlayReveal.SetChild(nil)
+		}
+		return false
+	})
+}
+
+func (a *App) buildOverlayCard(title string, width int, content gtk.Widgetter, extraBtns ...gtk.Widgetter) *gtk.Box {
+	card := gtk.NewBox(gtk.OrientationVertical, 0)
+	card.AddCSSClass("overlay-panel")
+	if width > 0 {
+		card.SetSizeRequest(width, -1)
+	}
+
+	hdr := gtk.NewBox(gtk.OrientationHorizontal, 8)
+	hdr.AddCSSClass("overlay-header")
+
+	lbl := gtk.NewLabel(title)
+	lbl.SetXAlign(0)
+	lbl.SetHExpand(true)
+	hdr.Append(lbl)
+	for _, b := range extraBtns {
+		hdr.Append(b)
+	}
+
+	closeBtn := gtk.NewButtonWithLabel("✕")
+	closeBtn.AddCSSClass("flat")
+	closeBtn.ConnectClicked(func() { a.hideOverlay() })
+	hdr.Append(closeBtn)
+	card.Append(hdr)
+
+	wrap := gtk.NewBox(gtk.OrientationVertical, 0)
+	wrap.SetVExpand(true)
+	wrap.Append(content)
+	card.Append(wrap)
+	return card
+}
+
+// confirmDialog — replaces all gtk.Dialog destructive confirmations
+func (a *App) confirmDialog(title, body string, destructive bool, onConfirm func()) {
+	content := gtk.NewBox(gtk.OrientationVertical, 14)
+	content.SetMarginTop(16)
+	content.SetMarginBottom(16)
+	content.SetMarginStart(16)
+	content.SetMarginEnd(16)
+
+	if body != "" {
+		lbl := gtk.NewLabel(body)
+		lbl.SetXAlign(0)
+		lbl.SetWrap(true)
+		lbl.AddCSSClass("dim")
+		content.Append(lbl)
+	}
+
+	btnRow := gtk.NewBox(gtk.OrientationHorizontal, 8)
+	btnRow.SetHAlign(gtk.AlignEnd)
+
+	cancelBtn := gtk.NewButtonWithLabel("Cancel")
+	cancelBtn.ConnectClicked(func() { a.hideOverlay() })
+	btnRow.Append(cancelBtn)
+
+	okBtn := gtk.NewButtonWithLabel("Confirm")
+	if destructive {
+		okBtn.AddCSSClass("destructive-action")
+	} else {
+		okBtn.AddCSSClass("suggested-action")
+	}
+	okBtn.ConnectClicked(func() {
+		a.hideOverlay()
+		onConfirm()
+	})
+	btnRow.Append(okBtn)
+	content.Append(btnRow)
+
+	card := a.buildOverlayCard(title, 380, content)
+	a.showOverlay(card)
+}
+
+// promptDialog — single text input in-app
+func (a *App) promptDialog(title, placeholder, initial string, onOK func(string)) {
+	content := gtk.NewBox(gtk.OrientationVertical, 14)
+	content.SetMarginTop(16)
+	content.SetMarginBottom(16)
+	content.SetMarginStart(16)
+	content.SetMarginEnd(16)
+
+	entry := gtk.NewEntry()
+	entry.SetPlaceholderText(placeholder)
+	entry.SetText(initial)
+	content.Append(entry)
+
+	btnRow := gtk.NewBox(gtk.OrientationHorizontal, 8)
+	btnRow.SetHAlign(gtk.AlignEnd)
+
+	cancelBtn := gtk.NewButtonWithLabel("Cancel")
+	cancelBtn.ConnectClicked(func() { a.hideOverlay() })
+	btnRow.Append(cancelBtn)
+
+	okBtn := gtk.NewButtonWithLabel("OK")
+	okBtn.AddCSSClass("suggested-action")
+	okBtn.ConnectClicked(func() {
+		val := strings.TrimSpace(entry.Text())
+		a.hideOverlay()
+		onOK(val)
+	})
+	btnRow.Append(okBtn)
+	content.Append(btnRow)
+
+	card := a.buildOverlayCard(title, 420, content)
+	a.showOverlay(card)
+}
+
+// ── Header ────────────────────────────────────────────────────────
 
 func (a *App) buildHeader() *gtk.HeaderBar {
-	header := gtk.NewHeaderBar()
-	header.SetShowTitleButtons(true)
+	hdr := gtk.NewHeaderBar()
+	hdr.SetShowTitleButtons(true)
 
-	left := gtk.NewBox(gtk.OrientationHorizontal, 8)
+	left := gtk.NewBox(gtk.OrientationHorizontal, 5)
 
+	// Branch dropdown — distinct bg from headerbar
 	a.branchDrop = gtk.NewDropDown(nil, nil)
-	a.branchDrop.SetSizeRequest(220, -1)
+	a.branchDrop.SetSizeRequest(190, -1)
 	left.Append(a.branchDrop)
 
-	repoBtn := gtk.NewButtonWithLabel("Repo")
-	repoBtn.ConnectClicked(func() {
-		a.openRepoConfigDialog()
-	})
-	left.Append(repoBtn)
+	for _, def := range []struct {
+		label, tooltip string
+		fn             func()
+	}{
+		{"↓ Fetch", "Fetch all remotes", func() { a.runGitOp("Fetching…", "Fetch complete", Fetch) }},
+		{"⇓ Pull", "Pull current branch", func() { a.runGitOp("Pulling…", "Pull complete", Pull) }},
+		{"⇑ Push", "Push current branch", func() { a.runGitOp("Pushing…", "Push complete", Push) }},
+		{"⊟ Stash", "Manage stashes", func() { a.openStashPanel() }},
+		{"⚙ Remotes", "Manage remotes", func() { a.openRepoConfigPanel() }},
+	} {
+		def := def
+		btn := gtk.NewButtonWithLabel(def.label)
+		btn.SetTooltipText(def.tooltip)
+		btn.ConnectClicked(def.fn)
+		left.Append(btn)
+	}
 
-	fetchBtn := gtk.NewButtonWithLabel("Fetch")
-	fetchBtn.ConnectClicked(func() {
-		if a.state == nil {
-			return
-		}
-		a.setInfo("Fetching…")
-		go func(repo string) {
-			err := Fetch(repo)
-			glib.IdleAdd(func() {
-				if err != nil {
-					a.setInfo("Fetch failed: " + err.Error())
-				} else {
-					a.setInfo("Fetch complete")
-				}
-				if a.cfg.Features.AsyncStateReload {
-					a.reloadStateAsync(true)
-				} else {
-					a.reloadState(true)
-				}
-			})
-		}(a.state.Path)
-	})
-	left.Append(fetchBtn)
+	hdr.PackStart(left)
 
-	pullBtn := gtk.NewButtonWithLabel("Pull")
-	pullBtn.ConnectClicked(func() {
-		if a.state == nil {
-			return
-		}
-		a.setInfo("Pulling…")
-		go func(repo string) {
-			err := Pull(repo)
-			glib.IdleAdd(func() {
-				if err != nil {
-					a.setInfo("Pull failed: " + err.Error())
-				} else {
-					a.setInfo("Pull complete")
-				}
-				if a.cfg.Features.AsyncStateReload {
-					a.reloadStateAsync(true)
-				} else {
-					a.reloadState(true)
-				}
-			})
-		}(a.state.Path)
-	})
-	left.Append(pullBtn)
-
-	pushBtn := gtk.NewButtonWithLabel("Push")
-	pushBtn.ConnectClicked(func() {
-		if a.state == nil {
-			return
-		}
-		a.setInfo("Pushing…")
-		go func(repo string) {
-			err := Push(repo)
-			glib.IdleAdd(func() {
-				if err != nil {
-					a.setInfo("Push failed: " + err.Error())
-				} else {
-					a.setInfo("Push complete")
-				}
-				if a.cfg.Features.AsyncStateReload {
-					a.reloadStateAsync(true)
-				} else {
-					a.reloadState(true)
-				}
-			})
-		}(a.state.Path)
-	})
-	left.Append(pushBtn)
-
-	header.PackStart(left)
-
-	right := gtk.NewBox(gtk.OrientationHorizontal, 8)
+	right := gtk.NewBox(gtk.OrientationHorizontal, 5)
 
 	a.searchEntry = gtk.NewSearchEntry()
-	a.searchEntry.SetPlaceholderText("Search commits, authors, hashes")
-	a.searchEntry.SetWidthChars(28)
-	a.searchEntry.ConnectSearchChanged(func() {
-		a.populateCommits()
-	})
+	a.searchEntry.SetPlaceholderText("Search commits…")
+	a.searchEntry.SetWidthChars(24)
+	a.searchEntry.ConnectSearchChanged(func() { a.populateCommits() })
 	right.Append(a.searchEntry)
 
-	refreshBtn := gtk.NewButtonWithLabel("Refresh")
-	refreshBtn.ConnectClicked(func() {
-		if a.cfg.Features.AsyncStateReload {
-			a.reloadStateAsync(true)
-		} else {
-			a.reloadState(true)
-		}
-	})
+	refreshBtn := gtk.NewButtonWithLabel("↺")
+	refreshBtn.SetTooltipText("Refresh")
+	refreshBtn.ConnectClicked(func() { a.doReload(true) })
 	right.Append(refreshBtn)
 
-	header.PackEnd(right)
-
-	return header
+	hdr.PackEnd(right)
+	return hdr
 }
 
+// runGitOp is a helper for simple async git operations
+func (a *App) runGitOp(startMsg, okMsg string, fn func(string) error) {
+	if a.state == nil {
+		return
+	}
+	a.setInfo(startMsg)
+	go func(repo string) {
+		err := fn(repo)
+		glib.IdleAdd(func() {
+			if err != nil {
+				a.setInfoErr(strings.TrimPrefix(err.Error(), "exit status 1: "))
+			} else {
+				a.setInfoOk(okMsg)
+			}
+			a.doReload(true)
+		})
+	}(a.state.Path)
+}
+
+// ── Body layout ───────────────────────────────────────────────────
+
 func (a *App) buildBody() *gtk.Paned {
-	mainPaned := gtk.NewPaned(gtk.OrientationHorizontal)
+	outer := gtk.NewPaned(gtk.OrientationHorizontal)
 
 	repoSidebar := a.buildRepoSidebar()
 	repoSidebar.SetSizeRequest(a.cfg.Appearance.RepoSidebarWidth, -1)
-	mainPaned.SetStartChild(repoSidebar)
+	outer.SetStartChild(repoSidebar)
+	outer.SetResizeStartChild(false)
+	outer.SetShrinkStartChild(false)
 
-	rightPaned := gtk.NewPaned(gtk.OrientationHorizontal)
+	inner := gtk.NewPaned(gtk.OrientationHorizontal)
 
 	fileSidebar := a.buildFileSidebar()
 	fileSidebar.SetSizeRequest(a.cfg.Appearance.SidebarWidth, -1)
-	rightPaned.SetStartChild(fileSidebar)
+	inner.SetStartChild(fileSidebar)
+	inner.SetResizeStartChild(false)
+	inner.SetShrinkStartChild(false)
 
-	content := a.buildContentArea()
-	rightPaned.SetEndChild(content)
-
-	mainPaned.SetEndChild(rightPaned)
-
-	mainPaned.SetResizeStartChild(false)
-	mainPaned.SetShrinkStartChild(false)
-	rightPaned.SetResizeStartChild(false)
-	rightPaned.SetShrinkStartChild(false)
-
-	return mainPaned
+	inner.SetEndChild(a.buildContentArea())
+	outer.SetEndChild(inner)
+	return outer
 }
+
+// ── Repo sidebar ──────────────────────────────────────────────────
 
 func (a *App) buildRepoSidebar() *gtk.Box {
 	box := gtk.NewBox(gtk.OrientationVertical, 0)
 	box.AddCSSClass("repo-sidebar")
 
-	titleWrap := gtk.NewBox(gtk.OrientationVertical, 4)
-	titleWrap.SetMarginTop(12)
-	titleWrap.SetMarginBottom(8)
-	titleWrap.SetMarginStart(12)
-	titleWrap.SetMarginEnd(12)
-
-	title := gtk.NewLabel("REPOSITORIES")
-	title.SetXAlign(0)
-	title.AddCSSClass("section-title")
-	titleWrap.Append(title)
-
-	box.Append(titleWrap)
+	hdr := a.makeSidebarHeader("Repositories", nil)
+	box.Append(hdr)
 
 	scroll := gtk.NewScrolledWindow()
 	scroll.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
@@ -342,34 +413,41 @@ func (a *App) buildRepoSidebar() *gtk.Box {
 	a.repoListBox = gtk.NewListBox()
 	a.repoListBox.SetSelectionMode(gtk.SelectionNone)
 	scroll.SetChild(a.repoListBox)
-
 	box.Append(scroll)
-	a.populateRepos()
 
+	a.populateRepos()
 	return box
 }
+
+// ── File sidebar ──────────────────────────────────────────────────
 
 func (a *App) buildFileSidebar() *gtk.Box {
 	box := gtk.NewBox(gtk.OrientationVertical, 0)
 	box.AddCSSClass("file-sidebar")
 
-	top := gtk.NewBox(gtk.OrientationVertical, 4)
-	top.SetMarginTop(12)
-	top.SetMarginBottom(8)
-	top.SetMarginStart(12)
-	top.SetMarginEnd(12)
+	// Stage All button lives in the header area
+	stageAllBtn := gtk.NewButtonWithLabel("+ All")
+	stageAllBtn.AddCSSClass("flat")
+	stageAllBtn.SetTooltipText("Stage all changes")
+	stageAllBtn.ConnectClicked(func() {
+		if a.state == nil {
+			return
+		}
+		go func(repo string) {
+			_ = StageAll(repo)
+			glib.IdleAdd(func() { a.doReload(false) })
+		}(a.state.Path)
+	})
 
-	title := gtk.NewLabel("CHANGES")
-	title.SetXAlign(0)
-	title.AddCSSClass("section-title")
-	top.Append(title)
+	hdr := a.makeSidebarHeader("Changes", stageAllBtn)
+	box.Append(hdr)
 
 	a.remoteLabel = gtk.NewLabel("")
 	a.remoteLabel.SetXAlign(0)
 	a.remoteLabel.AddCSSClass("repo-path")
-	top.Append(a.remoteLabel)
-
-	box.Append(top)
+	a.remoteLabel.SetMarginStart(14)
+	a.remoteLabel.SetMarginBottom(4)
+	box.Append(a.remoteLabel)
 
 	scroll := gtk.NewScrolledWindow()
 	scroll.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
@@ -377,42 +455,67 @@ func (a *App) buildFileSidebar() *gtk.Box {
 
 	a.fileListBox = gtk.NewListBox()
 	a.fileListBox.SetSelectionMode(gtk.SelectionNone)
-
 	scroll.SetChild(a.fileListBox)
 	box.Append(scroll)
-
 	return box
 }
+
+// makeSidebarHeader creates a consistent sidebar section header with
+// transparent bg so it inherits @surface from the parent panel.
+func (a *App) makeSidebarHeader(title string, extra gtk.Widgetter) *gtk.Box {
+	box := gtk.NewBox(gtk.OrientationHorizontal, 0)
+	box.AddCSSClass("sidebar-section")
+	box.SetMarginTop(11)
+	box.SetMarginBottom(9)
+	box.SetMarginStart(14)
+	box.SetMarginEnd(10)
+
+	lbl := gtk.NewLabel(title)
+	lbl.SetXAlign(0)
+	lbl.SetHExpand(true)
+	lbl.AddCSSClass("section-label")
+	box.Append(lbl)
+
+	if extra != nil {
+		box.Append(extra)
+	}
+	return box
+}
+
+// ── Content area ──────────────────────────────────────────────────
 
 func (a *App) buildContentArea() *gtk.Box {
 	box := gtk.NewBox(gtk.OrientationVertical, 0)
 	box.AddCSSClass("content-panel")
 
-	topInfo := gtk.NewBox(gtk.OrientationVertical, 2)
-	topInfo.SetMarginTop(12)
-	topInfo.SetMarginBottom(12)
-	topInfo.SetMarginStart(14)
-	topInfo.SetMarginEnd(14)
+	// Single-row compact info bar: [RepoName]  [path …]  [stats right-aligned]
+	infoBar := gtk.NewBox(gtk.OrientationHorizontal, 10)
+	infoBar.AddCSSClass("top-info-bar")
+	infoBar.SetMarginTop(7)
+	infoBar.SetMarginBottom(7)
+	infoBar.SetMarginStart(14)
+	infoBar.SetMarginEnd(14)
 
 	a.repoTitle = gtk.NewLabel("")
 	a.repoTitle.SetXAlign(0)
 	a.repoTitle.AddCSSClass("repo-name")
+	infoBar.Append(a.repoTitle)
 
 	a.repoPath = gtk.NewLabel("")
 	a.repoPath.SetXAlign(0)
+	a.repoPath.SetHExpand(true)
 	a.repoPath.AddCSSClass("repo-path")
 	a.repoPath.SetEllipsize(3)
+	infoBar.Append(a.repoPath)
 
 	a.infoLabel = gtk.NewLabel("")
-	a.infoLabel.SetXAlign(0)
+	a.infoLabel.SetXAlign(1)
 	a.infoLabel.AddCSSClass("dim")
+	infoBar.Append(a.infoLabel)
 
-	topInfo.Append(a.repoTitle)
-	topInfo.Append(a.repoPath)
-	topInfo.Append(a.infoLabel)
+	box.Append(infoBar)
 
-	box.Append(topInfo)
-
+	// Tab switcher
 	switcher := gtk.NewStackSwitcher()
 	box.Append(switcher)
 
@@ -423,57 +526,22 @@ func (a *App) buildContentArea() *gtk.Box {
 	a.stack.SetHExpand(true)
 	switcher.SetStack(a.stack)
 
-	logAndDiff := a.buildLogAndDiff()
-	a.stack.AddTitled(logAndDiff, "history", "History")
-
-	branchesView := a.buildBranchesView()
-	a.stack.AddTitled(branchesView, "branches", "Branches")
+	a.stack.AddTitled(a.buildLogAndDiff(), "history", "History")
+	a.stack.AddTitled(a.buildBranchesView(), "branches", "Branches")
 
 	emptyWrap := gtk.NewBox(gtk.OrientationVertical, 0)
 	emptyWrap.SetVExpand(true)
 	emptyWrap.SetHExpand(true)
 	emptyWrap.SetVAlign(gtk.AlignCenter)
 	emptyWrap.SetHAlign(gtk.AlignCenter)
-
 	a.emptyLabel = gtk.NewLabel("Select a repository")
 	a.emptyLabel.AddCSSClass("empty")
 	emptyWrap.Append(a.emptyLabel)
 
-	a.stack.AddTitled(emptyWrap, "empty", "Empty")
+	a.stack.AddTitled(emptyWrap, "empty", "")
 	a.stack.SetVisibleChildName("empty")
 
 	box.Append(a.stack)
-
-	return box
-}
-
-func (a *App) buildBranchesView() *gtk.Box {
-	box := gtk.NewBox(gtk.OrientationVertical, 0)
-
-	top := gtk.NewBox(gtk.OrientationHorizontal, 0)
-	top.SetMarginTop(12)
-	top.SetMarginBottom(8)
-	top.SetMarginStart(12)
-	top.SetMarginEnd(12)
-
-	a.branchSearch = gtk.NewSearchEntry()
-	a.branchSearch.SetPlaceholderText("Search branches")
-	a.branchSearch.SetHExpand(true)
-	a.branchSearch.ConnectSearchChanged(func() {
-		a.populateBranches()
-	})
-	top.Append(a.branchSearch)
-	box.Append(top)
-
-	scroll := gtk.NewScrolledWindow()
-	scroll.SetPolicy(gtk.PolicyAutomatic, gtk.PolicyAutomatic)
-	scroll.SetVExpand(true)
-
-	a.branchListBox = gtk.NewListBox()
-	a.branchListBox.SetSelectionMode(gtk.SelectionNone)
-	scroll.SetChild(a.branchListBox)
-	box.Append(scroll)
-
 	return box
 }
 
@@ -483,7 +551,6 @@ func (a *App) buildLogAndDiff() *gtk.Paned {
 	logScroll := gtk.NewScrolledWindow()
 	logScroll.SetPolicy(gtk.PolicyAutomatic, gtk.PolicyAutomatic)
 	logScroll.SetVExpand(true)
-
 	a.commitListBox = gtk.NewListBox()
 	a.commitListBox.SetSelectionMode(gtk.SelectionNone)
 	logScroll.SetChild(a.commitListBox)
@@ -491,87 +558,107 @@ func (a *App) buildLogAndDiff() *gtk.Paned {
 	diffScroll := gtk.NewScrolledWindow()
 	diffScroll.SetPolicy(gtk.PolicyAutomatic, gtk.PolicyAutomatic)
 	diffScroll.SetVExpand(true)
+	diffScroll.AddCSSClass("diff-area")
 
 	a.diffBuf = gtk.NewTextBuffer(nil)
 	a.diffView = gtk.NewTextViewWithBuffer(a.diffBuf)
 	a.diffView.SetEditable(false)
 	a.diffView.SetCursorVisible(false)
 	a.diffView.SetMonospace(true)
-	a.diffView.SetTopMargin(10)
-	a.diffView.SetBottomMargin(10)
-	a.diffView.SetLeftMargin(14)
-	a.diffView.SetRightMargin(14)
+	a.diffView.SetTopMargin(12)
+	a.diffView.SetBottomMargin(12)
+	a.diffView.SetLeftMargin(16)
+	a.diffView.SetRightMargin(16)
 	a.diffView.AddCSSClass("diff-view")
-
 	diffScroll.SetChild(a.diffView)
 
 	paned.SetStartChild(logScroll)
 	paned.SetEndChild(diffScroll)
-	paned.SetPosition(320)
-
+	paned.SetPosition(270)
 	return paned
 }
+
+func (a *App) buildBranchesView() *gtk.Box {
+	box := gtk.NewBox(gtk.OrientationVertical, 0)
+
+	newBranchBtn := gtk.NewButtonWithLabel("+ New")
+	newBranchBtn.ConnectClicked(func() { a.openNewBranchDialog() })
+
+	toolbar := gtk.NewBox(gtk.OrientationHorizontal, 6)
+	toolbar.SetMarginTop(10)
+	toolbar.SetMarginBottom(8)
+	toolbar.SetMarginStart(12)
+	toolbar.SetMarginEnd(12)
+
+	a.branchSearch = gtk.NewSearchEntry()
+	a.branchSearch.SetPlaceholderText("Filter branches…")
+	a.branchSearch.SetHExpand(true)
+	a.branchSearch.ConnectSearchChanged(func() { a.populateBranches() })
+	toolbar.Append(a.branchSearch)
+	toolbar.Append(newBranchBtn)
+	box.Append(toolbar)
+
+	scroll := gtk.NewScrolledWindow()
+	scroll.SetPolicy(gtk.PolicyAutomatic, gtk.PolicyAutomatic)
+	scroll.SetVExpand(true)
+	a.branchListBox = gtk.NewListBox()
+	a.branchListBox.SetSelectionMode(gtk.SelectionNone)
+	scroll.SetChild(a.branchListBox)
+	box.Append(scroll)
+	return box
+}
+
+// ── Commit strip ──────────────────────────────────────────────────
 
 func (a *App) buildCommitStrip() *gtk.Box {
 	box := gtk.NewBox(gtk.OrientationHorizontal, 8)
 	box.AddCSSClass("commit-strip")
 
 	a.commitEntry = gtk.NewEntry()
-	a.commitEntry.SetPlaceholderText("Commit message")
+	a.commitEntry.SetPlaceholderText("Commit message…")
 	a.commitEntry.SetHExpand(true)
-	a.commitEntry.ConnectChanged(func() {
-		a.updateCommitButton()
-	})
+	a.commitEntry.ConnectChanged(func() { a.updateCommitButton() })
 	box.Append(a.commitEntry)
 
 	a.commitButton = gtk.NewButtonWithLabel("Commit")
-	a.commitButton.AddCSSClass("suggested-action")
+	a.commitButton.AddCSSClass("commit-button-custom")
 	a.commitButton.SetSensitive(false)
 	a.commitButton.ConnectClicked(func() {
 		if a.state == nil {
 			return
 		}
-
 		msg := strings.TrimSpace(a.commitEntry.Text())
 		if msg == "" {
 			return
 		}
-
-		a.setInfo("Creating commit…")
+		a.setInfo("Committing…")
 		go func(repo, message string) {
 			err := DoCommit(repo, message)
 			glib.IdleAdd(func() {
 				if err != nil {
-					a.setInfo("Commit failed: " + err.Error())
+					a.setInfoErr(err.Error())
 					return
 				}
 				a.commitEntry.SetText("")
-				a.setInfo("Commit created")
-				if a.cfg.Features.AsyncStateReload {
-					a.reloadStateAsync(true)
-				} else {
-					a.reloadState(true)
-				}
+				a.setInfoOk("Committed")
+				a.doReload(true)
 			})
 		}(a.state.Path, msg)
 	})
 	box.Append(a.commitButton)
-
 	return box
 }
 
+// ── Status strip ──────────────────────────────────────────────────
+
 func (a *App) buildStatusStrip() *gtk.Box {
-	box := gtk.NewBox(gtk.OrientationHorizontal, 12)
+	box := gtk.NewBox(gtk.OrientationHorizontal, 10)
 	box.AddCSSClass("status-strip")
 
 	a.branchLabel = gtk.NewLabel("")
-	a.branchLabel.SetXAlign(0)
-
 	a.aheadLabel = gtk.NewLabel("")
-	a.aheadLabel.SetXAlign(0)
-
+	a.aheadLabel.AddCSSClass("ahead-behind")
 	a.statsLabel = gtk.NewLabel("")
-	a.statsLabel.SetXAlign(0)
 
 	box.Append(a.branchLabel)
 	box.Append(a.aheadLabel)
@@ -580,37 +667,59 @@ func (a *App) buildStatusStrip() *gtk.Box {
 	spacer := gtk.NewBox(gtk.OrientationHorizontal, 0)
 	spacer.SetHExpand(true)
 	box.Append(spacer)
-
 	return box
 }
 
-func (a *App) setInfo(text string) {
-	if a.infoLabel != nil {
-		a.infoLabel.SetText(text)
+// ── Info helpers ──────────────────────────────────────────────────
+
+func (a *App) setInfo(t string) {
+	if a.infoLabel == nil {
+		return
+	}
+	a.infoLabel.SetText(t)
+	a.infoLabel.RemoveCSSClass("info-ok")
+	a.infoLabel.RemoveCSSClass("info-err")
+	a.infoLabel.AddCSSClass("dim")
+}
+
+func (a *App) setInfoOk(t string) {
+	if a.infoLabel == nil {
+		return
+	}
+	a.infoLabel.SetText(t)
+	a.infoLabel.RemoveCSSClass("dim")
+	a.infoLabel.RemoveCSSClass("info-err")
+	a.infoLabel.AddCSSClass("info-ok")
+}
+
+func (a *App) setInfoErr(t string) {
+	if a.infoLabel == nil {
+		return
+	}
+	a.infoLabel.SetText(t)
+	a.infoLabel.RemoveCSSClass("dim")
+	a.infoLabel.RemoveCSSClass("info-ok")
+	a.infoLabel.AddCSSClass("info-err")
+}
+
+func (a *App) doReload(showDefault bool) {
+	if a.cfg.Features.AsyncStateReload {
+		a.reloadStateAsync(showDefault)
+	} else {
+		a.reloadState(showDefault)
 	}
 }
 
+// ── Repo list ─────────────────────────────────────────────────────
+
 func (a *App) populateRepos() {
 	clearListBox(a.repoListBox)
-
 	if len(a.repos) == 0 {
-		row := gtk.NewListBoxRow()
-		row.SetSelectable(false)
-
-		label := gtk.NewLabel("No repositories found")
-		label.SetXAlign(0)
-		label.SetMarginTop(12)
-		label.SetMarginBottom(12)
-		label.SetMarginStart(12)
-		row.SetChild(label)
-
-		a.repoListBox.Append(row)
+		a.repoListBox.Append(a.makePlaceholderRow("No repositories found"))
 		return
 	}
-
 	for _, repo := range a.repos {
 		repo := repo
-
 		row := gtk.NewListBoxRow()
 		row.AddCSSClass("repo-row")
 
@@ -631,11 +740,8 @@ func (a *App) populateRepos() {
 		row.SetChild(box)
 
 		click := gtk.NewGestureClick()
-		click.ConnectReleased(func(_ int, _, _ float64) {
-			a.selectRepo(repo.Path)
-		})
+		click.ConnectReleased(func(_ int, _, _ float64) { a.selectRepo(repo.Path) })
 		row.AddController(click)
-
 		a.repoListBox.Append(row)
 	}
 }
@@ -646,75 +752,65 @@ func (a *App) selectRepo(path string) {
 	a.selectedCommit = ""
 
 	idx := 0
-	for i, repo := range a.repos {
-		if repo.Path == path {
+	for i, r := range a.repos {
+		if r.Path == path {
 			idx = i
 			break
 		}
 	}
-
-	row := a.repoListBox.RowAtIndex(idx)
-	if row != nil {
+	if row := a.repoListBox.RowAtIndex(idx); row != nil {
 		if a.selectedRepoRow != nil {
 			a.selectedRepoRow.RemoveCSSClass("selected")
 		}
 		row.AddCSSClass("selected")
 		a.selectedRepoRow = row
 	}
-
-	if a.cfg.Features.AsyncStateReload {
-		a.reloadStateAsync(true)
-	} else {
-		a.reloadState(true)
-	}
+	a.doReload(true)
 }
 
-func (a *App) reloadStateAsync(showDefaultDiff bool) {
+// ── State ─────────────────────────────────────────────────────────
+
+func (a *App) reloadStateAsync(showDefault bool) {
 	if a.selectedRepoPath == "" {
 		return
 	}
-
-	if showDefaultDiff || a.state == nil {
+	if showDefault || a.state == nil {
 		a.stack.SetVisibleChildName("empty")
-		a.emptyLabel.SetText("Loading repository…")
+		a.emptyLabel.SetText("Loading…")
 	}
-
 	repoPath := a.selectedRepoPath
-	maxCommits := a.cfg.Behavior.MaxCommits
-
+	max := a.cfg.Behavior.MaxCommits
 	go func() {
-		newState := LoadRepoState(repoPath, maxCommits)
+		ns := LoadRepoState(repoPath, max)
 		glib.IdleAdd(func() {
-			if newState == nil {
+			if ns == nil {
 				a.stack.SetVisibleChildName("empty")
 				a.emptyLabel.SetText("Failed to load repository")
 				return
 			}
-			a.applyState(newState, showDefaultDiff)
+			a.applyState(ns, showDefault)
 		})
 	}()
 }
 
-func (a *App) reloadState(showDefaultDiff bool) {
+func (a *App) reloadState(showDefault bool) {
 	if a.selectedRepoPath == "" {
 		return
 	}
-
-	newState := LoadRepoState(a.selectedRepoPath, a.cfg.Behavior.MaxCommits)
-	if newState == nil {
+	ns := LoadRepoState(a.selectedRepoPath, a.cfg.Behavior.MaxCommits)
+	if ns == nil {
 		a.stack.SetVisibleChildName("empty")
 		a.emptyLabel.SetText("Failed to load repository")
 		return
 	}
-
-	a.applyState(newState, showDefaultDiff)
+	a.applyState(ns, showDefault)
 }
 
-func (a *App) applyState(newState *RepoState, showDefaultDiff bool) {
-	commitsChanged := a.commitsChanged(newState.Commits)
-	filesChanged := a.filesChanged(newState.Files)
-	branchesChanged := a.branchesChanged(newState.Branches)
-	a.state = newState
+func (a *App) applyState(ns *RepoState, showDefault bool) {
+	commitsChanged := a.commitsChanged(ns.Commits)
+	filesChanged := a.filesChanged(ns.Files)
+	branchesChanged := a.branchesChanged(ns.Branches)
+	a.state = ns
 
 	if branchesChanged {
 		a.bindBranchDrop()
@@ -735,15 +831,15 @@ func (a *App) applyState(newState *RepoState, showDefaultDiff bool) {
 		a.stack.SetVisibleChildName("history")
 	}
 
-	if showDefaultDiff {
-		if len(a.state.Files) > 0 {
-			f := a.state.Files[0]
+	if showDefault {
+		if len(ns.Files) > 0 {
+			f := ns.Files[0]
 			a.selectedFile = f.Path
 			a.selectedFileMode = f.Staged
 			a.selectedCommit = ""
 			a.loadFileDiff(f.Path, f.Staged)
-		} else if len(a.state.Commits) > 0 {
-			c := a.state.Commits[0]
+		} else if len(ns.Commits) > 0 {
+			c := ns.Commits[0]
 			a.selectedCommit = c.Hash
 			a.selectedFile = ""
 			a.loadCommitDiff(c.Hash)
@@ -751,225 +847,132 @@ func (a *App) applyState(newState *RepoState, showDefaultDiff bool) {
 			a.renderDiff("")
 		}
 	}
-
 	a.updateCommitButton()
 }
 
-func (a *App) commitsChanged(newCommits []Commit) bool {
-	if a.state == nil || len(a.state.Commits) != len(newCommits) {
+func (a *App) commitsChanged(nc []Commit) bool {
+	if a.state == nil || len(a.state.Commits) != len(nc) {
 		return true
 	}
-	for i := range newCommits {
-		if i < 50 && a.state.Commits[i].Hash != newCommits[i].Hash {
-			return true
-		}
+	for i := range nc {
 		if i >= 50 {
 			break
 		}
-	}
-	return false
-}
-
-func (a *App) filesChanged(newFiles []FileStatus) bool {
-	if a.state == nil || len(a.state.Files) != len(newFiles) {
-		return true
-	}
-	for i := range newFiles {
-		if a.state.Files[i].Path != newFiles[i].Path ||
-			a.state.Files[i].Staged != newFiles[i].Staged ||
-			a.state.Files[i].IndexStatus != newFiles[i].IndexStatus ||
-			a.state.Files[i].WorkStatus != newFiles[i].WorkStatus {
+		if a.state.Commits[i].Hash != nc[i].Hash {
 			return true
 		}
 	}
 	return false
 }
 
-func (a *App) branchesChanged(newBranches []BranchInfo) bool {
-	if a.state == nil || len(a.state.Branches) != len(newBranches) {
+func (a *App) filesChanged(nf []FileStatus) bool {
+	if a.state == nil || len(a.state.Files) != len(nf) {
 		return true
 	}
-	for i := range newBranches {
-		if a.state.Branches[i].Name != newBranches[i].Name ||
-			a.state.Branches[i].Current != newBranches[i].Current ||
-			a.state.Branches[i].Hash != newBranches[i].Hash ||
-			a.state.Branches[i].Remote != newBranches[i].Remote {
+	for i := range nf {
+		if a.state.Files[i].Path != nf[i].Path ||
+			a.state.Files[i].Staged != nf[i].Staged ||
+			a.state.Files[i].IndexStatus != nf[i].IndexStatus ||
+			a.state.Files[i].WorkStatus != nf[i].WorkStatus {
 			return true
 		}
 	}
 	return false
 }
 
-func (a *App) populateBranches() {
-	clearListBox(a.branchListBox)
-
-	if a.state == nil {
-		return
+func (a *App) branchesChanged(nb []BranchInfo) bool {
+	if a.state == nil || len(a.state.Branches) != len(nb) {
+		return true
 	}
-
-	filter := strings.ToLower(strings.TrimSpace(a.branchSearch.Text()))
-
-	for _, b := range a.state.Branches {
-		if filter != "" {
-			if !strings.Contains(strings.ToLower(b.Name), filter) {
-				continue
-			}
+	for i := range nb {
+		if a.state.Branches[i].Name != nb[i].Name ||
+			a.state.Branches[i].Current != nb[i].Current ||
+			a.state.Branches[i].Hash != nb[i].Hash {
+			return true
 		}
-
-		b := b
-
-		row := gtk.NewListBoxRow()
-		row.AddCSSClass("branch-row")
-
-		box := gtk.NewBox(gtk.OrientationHorizontal, 12)
-		box.SetMarginTop(8)
-		box.SetMarginBottom(8)
-		box.SetMarginStart(12)
-		box.SetMarginEnd(12)
-
-		info := gtk.NewBox(gtk.OrientationVertical, 2)
-		info.SetHExpand(true)
-
-		nameBox := gtk.NewBox(gtk.OrientationHorizontal, 8)
-		name := gtk.NewLabel(b.Name)
-		name.AddCSSClass("repo-name")
-		nameBox.Append(name)
-
-		if b.Current {
-			current := gtk.NewLabel("current")
-			current.AddCSSClass("status-added")
-			current.SetMarginStart(4)
-			nameBox.Append(current)
-		}
-		info.Append(nameBox)
-
-		meta := gtk.NewLabel(fmt.Sprintf("%s · %s · %s", b.Hash, b.Subject, b.Date))
-		meta.AddCSSClass("commit-meta")
-		meta.SetXAlign(0)
-		meta.SetEllipsize(3)
-		info.Append(meta)
-
-		if b.Remote != "" {
-			remote := gtk.NewLabel("upstream: " + b.Remote)
-			remote.AddCSSClass("dim")
-			remote.SetXAlign(0)
-			info.Append(remote)
-		}
-
-		box.Append(info)
-
-		if !b.Current {
-			checkout := gtk.NewButtonWithLabel("Checkout")
-			checkout.ConnectClicked(func() {
-				a.setInfo("Checking out " + b.Name + "…")
-				go func(repo, branch string) {
-					err := Checkout(repo, branch)
-					glib.IdleAdd(func() {
-						if err != nil {
-							a.setInfo("Checkout failed: " + err.Error())
-						} else {
-							a.setInfo("Switched to " + branch)
-						}
-						if a.cfg.Features.AsyncStateReload {
-							a.reloadStateAsync(true)
-						} else {
-							a.reloadState(true)
-						}
-					})
-				}(a.state.Path, b.Name)
-			})
-			box.Append(checkout)
-		}
-
-		row.SetChild(box)
-		a.branchListBox.Append(row)
 	}
+	return false
 }
+
+func (a *App) stashesChanged(ns []StashEntry) bool {
+	if a.state == nil || len(a.state.Stashes) != len(ns) {
+		return true
+	}
+	for i := range ns {
+		if a.state.Stashes[i].Ref != ns[i].Ref {
+			return true
+		}
+	}
+	return false
+}
+
+// ── Branch dropdown ───────────────────────────────────────────────
 
 func (a *App) bindBranchDrop() {
 	if a.state == nil {
 		return
 	}
-
-	branches := make([]string, 0, len(a.state.Branches))
-	currentIndex := uint(0)
-
-	for i, b := range a.state.Branches {
-		branches = append(branches, b.Name)
-		if b.Current {
-			currentIndex = uint(i)
+	var local []BranchInfo
+	for _, b := range a.state.Branches {
+		if !b.IsRemote {
+			local = append(local, b)
 		}
 	}
-
-	model := gtk.NewStringList(branches)
-	a.branchDrop.SetModel(model)
-
-	if len(branches) > 0 {
-		a.branchDrop.SetSelected(currentIndex)
+	names := make([]string, 0, len(local))
+	cur := uint(0)
+	for i, b := range local {
+		names = append(names, b.Name)
+		if b.Current {
+			cur = uint(i)
+		}
 	}
-
+	a.branchDrop.SetModel(gtk.NewStringList(names))
+	if len(names) > 0 {
+		a.branchDrop.SetSelected(cur)
+	}
 	if a.branchDropBound {
 		return
 	}
-
 	a.branchDropBound = true
-
 	a.branchDrop.Connect("notify::selected", func() {
 		if a.state == nil {
 			return
 		}
-
 		sel := int(a.branchDrop.Selected())
-		if sel < 0 || sel >= len(branches) {
+		if sel < 0 || sel >= len(names) {
 			return
 		}
-
-		target := branches[sel]
+		target := names[sel]
 		if target == a.state.Branch {
 			return
 		}
-
-		a.setInfo("Switching branch to " + target + "…")
+		a.setInfo("Switching to " + target + "…")
 		go func(repo, branch string) {
 			err := Checkout(repo, branch)
 			glib.IdleAdd(func() {
 				if err != nil {
-					a.setInfo("Checkout failed: " + err.Error())
+					a.setInfoErr(err.Error())
 				} else {
-					a.setInfo("On branch " + branch)
+					a.setInfoOk("On " + branch)
 				}
-				if a.cfg.Features.AsyncStateReload {
-					a.reloadStateAsync(true)
-				} else {
-					a.reloadState(true)
-				}
+				a.doReload(true)
 			})
 		}(a.state.Path, target)
 	})
 }
+
+// ── File list ─────────────────────────────────────────────────────
 
 func (a *App) populateFiles() {
 	clearListBox(a.fileListBox)
 	a.selectedFileRow = nil
 
 	if a.state == nil || len(a.state.Files) == 0 {
-		row := gtk.NewListBoxRow()
-		row.SetSelectable(false)
-
-		label := gtk.NewLabel("Working tree clean")
-		label.SetXAlign(0)
-		label.SetMarginTop(12)
-		label.SetMarginBottom(12)
-		label.SetMarginStart(12)
-		row.SetChild(label)
-
-		a.fileListBox.Append(row)
+		a.fileListBox.Append(a.makePlaceholderRow("Working tree clean"))
 		return
 	}
 
-	staged := []FileStatus{}
-	unstaged := []FileStatus{}
-
+	var staged, unstaged []FileStatus
 	for _, f := range a.state.Files {
 		if f.Staged {
 			staged = append(staged, f)
@@ -977,51 +980,60 @@ func (a *App) populateFiles() {
 			unstaged = append(unstaged, f)
 		}
 	}
-
 	if len(staged) > 0 {
-		a.appendFileSection("STAGED", staged, true)
+		a.appendFileSection("Staged", staged, true)
 	}
 	if len(unstaged) > 0 {
-		a.appendFileSection("CHANGES", unstaged, false)
+		a.appendFileSection("Changes", unstaged, false)
 	}
 }
 
 func (a *App) appendFileSection(title string, files []FileStatus, staged bool) {
-	headerRow := gtk.NewListBoxRow()
-	headerRow.SetSelectable(false)
+	// Section header row — class on the ROW so GTK's bg override is caught
+	hdrRow := gtk.NewListBoxRow()
+	hdrRow.SetSelectable(false)
+	hdrRow.AddCSSClass("section-header")
 
-	label := gtk.NewLabel(fmt.Sprintf("%s  (%d)", title, len(files)))
-	label.SetXAlign(0)
-	label.SetMarginTop(10)
-	label.SetMarginBottom(6)
-	label.SetMarginStart(12)
-	label.AddCSSClass("section-title")
+	hdrBox := gtk.NewBox(gtk.OrientationHorizontal, 6)
+	hdrBox.AddCSSClass("sidebar-section")
+	hdrBox.SetMarginTop(10)
+	hdrBox.SetMarginBottom(5)
+	hdrBox.SetMarginStart(14)
+	hdrBox.SetMarginEnd(10)
 
-	headerRow.SetChild(label)
-	a.fileListBox.Append(headerRow)
+	lbl := gtk.NewLabel(title)
+	lbl.SetXAlign(0)
+	lbl.SetHExpand(true)
+	lbl.AddCSSClass("section-label")
+	hdrBox.Append(lbl)
+
+	countLbl := gtk.NewLabel(strconv.Itoa(len(files)))
+	countLbl.AddCSSClass("section-count")
+	hdrBox.Append(countLbl)
+
+	hdrRow.SetChild(hdrBox)
+	a.fileListBox.Append(hdrRow)
 
 	for _, f := range files {
 		f := f
-
 		row := gtk.NewListBoxRow()
 		row.AddCSSClass("file-row")
 
-		box := gtk.NewBox(gtk.OrientationHorizontal, 8)
+		box := gtk.NewBox(gtk.OrientationHorizontal, 6)
 		box.AddCSSClass("file-row-box")
 
-		status := gtk.NewLabel(statusMark(f))
-		status.SetWidthChars(2)
-		status.SetXAlign(0)
-
+		statusLbl := gtk.NewLabel(statusMark(f))
+		statusLbl.SetWidthChars(2)
+		statusLbl.SetXAlign(0.5)
 		switch statusKind(f) {
 		case "A":
-			status.AddCSSClass("status-added")
+			statusLbl.AddCSSClass("status-added")
 		case "M":
-			status.AddCSSClass("status-modified")
+			statusLbl.AddCSSClass("status-modified")
 		case "D":
-			status.AddCSSClass("status-removed")
+			statusLbl.AddCSSClass("status-removed")
 		default:
-			status.AddCSSClass("status-unknown")
+			statusLbl.AddCSSClass("status-unknown")
 		}
 
 		name := gtk.NewLabel(f.Path)
@@ -1029,43 +1041,34 @@ func (a *App) appendFileSection(title string, files []FileStatus, staged bool) {
 		name.SetXAlign(0)
 		name.SetEllipsize(3)
 
-		actionLabel := "+"
+		// Stage/unstage toggle
+		toggleLabel := "+"
 		if staged {
-			actionLabel = "−"
+			toggleLabel = "−"
 		}
-
-		action := gtk.NewButtonWithLabel(actionLabel)
-		action.AddCSSClass("flat")
-		action.SetSizeRequest(28, 28)
-		action.ConnectClicked(func() {
+		toggle := gtk.NewButtonWithLabel(toggleLabel)
+		toggle.AddCSSClass("flat")
+		toggle.SetSizeRequest(26, 26)
+		toggle.ConnectClicked(func() {
 			if a.state == nil {
 				return
 			}
-			repoPath := a.state.Path
-			go func(repo string, file string, isStaged bool) {
+			go func(repo, file string, isStaged bool) {
 				if isStaged {
 					_ = UnstageFile(repo, file)
 				} else {
 					_ = StageFile(repo, file)
 				}
 				glib.IdleAdd(func() {
-					if a.cfg.Features.AsyncStateReload {
-						a.reloadStateAsync(false)
-					} else {
-						a.reloadState(false)
-					}
-					a.selectedFile = file
-					a.selectedFileMode = !isStaged
-					a.selectedCommit = ""
+					a.doReload(false)
 					a.loadFileDiff(file, !isStaged)
-					_ = repoPath
 				})
-			}(repoPath, f.Path, staged)
+			}(a.state.Path, f.Path, staged)
 		})
 
-		box.Append(status)
+		box.Append(statusLbl)
 		box.Append(name)
-		box.Append(action)
+		box.Append(toggle)
 		row.SetChild(box)
 
 		click := gtk.NewGestureClick()
@@ -1080,38 +1083,11 @@ func (a *App) appendFileSection(title string, files []FileStatus, staged bool) {
 			a.markSelectedRow(a.fileListBox, row)
 		})
 		row.AddController(click)
-
 		a.fileListBox.Append(row)
 	}
 }
 
-func (a *App) buildRefLabel(ref string) *gtk.Widget {
-	ref = strings.TrimSpace(ref)
-	if ref == "" {
-		return nil
-	}
-
-	kind := "branch"
-	text := ref
-
-	if strings.HasPrefix(ref, "HEAD -> ") {
-		text = strings.TrimPrefix(ref, "HEAD -> ")
-		kind = "head"
-	} else if strings.HasPrefix(ref, "tag: ") {
-		text = strings.TrimPrefix(ref, "tag: ")
-		kind = "tag"
-	} else if strings.Contains(ref, "/") {
-		kind = "remote"
-	}
-
-	lbl := gtk.NewLabel(text)
-	lbl.SetMarginStart(6)
-	lbl.SetMarginEnd(6)
-	lbl.AddCSSClass("ref-label")
-	lbl.AddCSSClass("ref-" + kind)
-
-	return &lbl.Widget
-}
+// ── Commit list ───────────────────────────────────────────────────
 
 func (a *App) populateCommits() {
 	clearListBox(a.commitListBox)
@@ -1126,14 +1102,10 @@ func (a *App) populateCommits() {
 
 	for _, c := range a.state.Commits {
 		if filter != "" && c.IsCommit {
-			searchable := strings.ToLower(
-				c.Subject + " " + c.Author + " " + c.ShortHash,
-			)
-			if !strings.Contains(searchable, filter) {
+			if !strings.Contains(strings.ToLower(c.Subject+" "+c.Author+" "+c.ShortHash), filter) {
 				continue
 			}
 		}
-
 		c := c
 
 		row := gtk.NewListBoxRow()
@@ -1160,41 +1132,39 @@ func (a *App) populateCommits() {
 		hash.AddCSSClass("commit-hash")
 		box.Append(hash)
 
-		subjectWrap := gtk.NewBox(gtk.OrientationVertical, 2)
-		subjectWrap.SetHExpand(true)
+		wrap := gtk.NewBox(gtk.OrientationVertical, 2)
+		wrap.SetHExpand(true)
 
-		subjectRow := gtk.NewBox(gtk.OrientationHorizontal, 6)
-		subject := gtk.NewLabel(c.Subject)
-		subject.SetXAlign(0)
-		subject.SetEllipsize(3)
-		subjectRow.Append(subject)
+		subjRow := gtk.NewBox(gtk.OrientationHorizontal, 6)
+		subj := gtk.NewLabel(c.Subject)
+		subj.SetXAlign(0)
+		subj.SetEllipsize(3)
+		subjRow.Append(subj)
 
 		if c.RefNames != "" {
 			for _, ref := range strings.Split(c.RefNames, ",") {
 				if lbl := a.buildRefLabel(ref); lbl != nil {
-					subjectRow.Append(lbl)
+					subjRow.Append(lbl)
 				}
 			}
 		}
-		subjectWrap.Append(subjectRow)
+		wrap.Append(subjRow)
 
-		metaText := ""
-		if a.cfg.Features.ShowCommitAuthors && a.cfg.Features.ShowCommitDates {
-			metaText = c.Author + " · " + c.DateRel
-		} else if a.cfg.Features.ShowCommitAuthors {
-			metaText = c.Author
-		} else if a.cfg.Features.ShowCommitDates {
-			metaText = c.DateRel
+		var metaParts []string
+		if a.cfg.Features.ShowCommitAuthors {
+			metaParts = append(metaParts, c.Author)
 		}
-
-		if metaText != "" {
-			meta := gtk.NewLabel(metaText)
+		if a.cfg.Features.ShowCommitDates {
+			metaParts = append(metaParts, c.DateRel)
+		}
+		if len(metaParts) > 0 {
+			meta := gtk.NewLabel(strings.Join(metaParts, " · "))
 			meta.SetXAlign(0)
 			meta.AddCSSClass("commit-meta")
-			subjectWrap.Append(meta)
+			wrap.Append(meta)
 		}
 
-		box.Append(subjectWrap)
+		box.Append(wrap)
 		row.SetChild(box)
 
 		click := gtk.NewGestureClick()
@@ -1208,25 +1178,682 @@ func (a *App) populateCommits() {
 			a.markSelectedRow(a.commitListBox, row)
 		})
 		row.AddController(click)
-
 		a.commitListBox.Append(row)
 		count++
 	}
 
-	if count == 0 {
-		row := gtk.NewListBoxRow()
-		row.SetSelectable(false)
-
-		label := gtk.NewLabel("No commits match your search")
-		label.SetXAlign(0)
-		label.SetMarginTop(12)
-		label.SetMarginBottom(12)
-		label.SetMarginStart(12)
-		row.SetChild(label)
-
-		a.commitListBox.Append(row)
+	if count == 0 && filter != "" {
+		a.commitListBox.Append(a.makePlaceholderRow("No commits match"))
 	}
 }
+
+func (a *App) buildRefLabel(ref string) *gtk.Widget {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return nil
+	}
+	kind, text := "branch", ref
+	if strings.HasPrefix(ref, "HEAD -> ") {
+		text = strings.TrimPrefix(ref, "HEAD -> ")
+		kind = "head"
+	} else if strings.HasPrefix(ref, "tag: ") {
+		text = strings.TrimPrefix(ref, "tag: ")
+		kind = "tag"
+	} else if strings.Contains(ref, "/") {
+		kind = "remote"
+	}
+	lbl := gtk.NewLabel(text)
+	lbl.SetMarginStart(3)
+	lbl.SetMarginEnd(3)
+	lbl.AddCSSClass("ref-label")
+	lbl.AddCSSClass("ref-" + kind)
+	return &lbl.Widget
+}
+
+// ── Branch panel ──────────────────────────────────────────────────
+
+func (a *App) populateBranches() {
+	clearListBox(a.branchListBox)
+	if a.state == nil {
+		return
+	}
+	filter := strings.ToLower(strings.TrimSpace(a.branchSearch.Text()))
+
+	var local, remote []BranchInfo
+	for _, b := range a.state.Branches {
+		if filter != "" && !strings.Contains(strings.ToLower(b.Name), filter) {
+			continue
+		}
+		if b.IsRemote {
+			remote = append(remote, b)
+		} else {
+			local = append(local, b)
+		}
+	}
+	if len(local) > 0 {
+		a.appendBranchSection("Local", local)
+	}
+	if len(remote) > 0 {
+		a.appendBranchSection("Remote", remote)
+	}
+	if len(local)+len(remote) == 0 {
+		a.branchListBox.Append(a.makePlaceholderRow("No branches match"))
+	}
+}
+
+func (a *App) appendBranchSection(title string, branches []BranchInfo) {
+	hdrRow := gtk.NewListBoxRow()
+	hdrRow.SetSelectable(false)
+	hdrRow.AddCSSClass("section-header")
+
+	hdrBox := gtk.NewBox(gtk.OrientationHorizontal, 6)
+	hdrBox.AddCSSClass("sidebar-section")
+	hdrBox.SetMarginTop(10)
+	hdrBox.SetMarginBottom(5)
+	hdrBox.SetMarginStart(14)
+	hdrBox.SetMarginEnd(10)
+
+	lbl := gtk.NewLabel(title)
+	lbl.SetXAlign(0)
+	lbl.SetHExpand(true)
+	lbl.AddCSSClass("section-label")
+	hdrBox.Append(lbl)
+
+	countLbl := gtk.NewLabel(strconv.Itoa(len(branches)))
+	countLbl.AddCSSClass("section-count")
+	hdrBox.Append(countLbl)
+
+	hdrRow.SetChild(hdrBox)
+	a.branchListBox.Append(hdrRow)
+
+	for _, b := range branches {
+		b := b
+		row := gtk.NewListBoxRow()
+		row.AddCSSClass("branch-row")
+
+		outer := gtk.NewBox(gtk.OrientationHorizontal, 8)
+		outer.AddCSSClass("branch-row-box")
+
+		info := gtk.NewBox(gtk.OrientationVertical, 3)
+		info.SetHExpand(true)
+
+		nameRow := gtk.NewBox(gtk.OrientationHorizontal, 6)
+		name := gtk.NewLabel(b.Name)
+		name.SetXAlign(0)
+		name.AddCSSClass("repo-name")
+		nameRow.Append(name)
+
+		if b.Current {
+			badge := gtk.NewLabel("current")
+			badge.AddCSSClass("badge-current")
+			nameRow.Append(badge)
+		}
+		if b.Ahead > 0 || b.Behind > 0 {
+			ab := gtk.NewLabel(fmt.Sprintf("↑%d ↓%d", b.Ahead, b.Behind))
+			ab.AddCSSClass("ahead-behind")
+			nameRow.Append(ab)
+		}
+		info.Append(nameRow)
+
+		var metaParts []string
+		if b.Hash != "" {
+			metaParts = append(metaParts, b.Hash)
+		}
+		if b.Subject != "" {
+			metaParts = append(metaParts, b.Subject)
+		}
+		if b.Date != "" {
+			metaParts = append(metaParts, b.Date)
+		}
+		if len(metaParts) > 0 {
+			meta := gtk.NewLabel(strings.Join(metaParts, " · "))
+			meta.AddCSSClass("commit-meta")
+			meta.SetXAlign(0)
+			meta.SetEllipsize(3)
+			info.Append(meta)
+		}
+		if b.Remote != "" {
+			up := gtk.NewLabel("↑ " + b.Remote)
+			up.AddCSSClass("dim")
+			up.SetXAlign(0)
+			info.Append(up)
+		}
+		outer.Append(info)
+
+		acts := gtk.NewBox(gtk.OrientationHorizontal, 4)
+		acts.SetVAlign(gtk.AlignCenter)
+
+		if !b.Current && !b.IsRemote {
+			coBtn := gtk.NewButtonWithLabel("Checkout")
+			coBtn.ConnectClicked(func() {
+				a.setInfo("Checking out " + b.Name + "…")
+				go func(repo, branch string) {
+					err := Checkout(repo, branch)
+					glib.IdleAdd(func() {
+						if err != nil {
+							a.setInfoErr(err.Error())
+						} else {
+							a.setInfoOk("On " + branch)
+						}
+						a.doReload(true)
+					})
+				}(a.state.Path, b.Name)
+			})
+			acts.Append(coBtn)
+
+			mergeBtn := gtk.NewButtonWithLabel("Merge")
+			mergeBtn.ConnectClicked(func() {
+				a.confirmDialog(
+					"Merge "+b.Name,
+					"Merge branch '"+b.Name+"' into the current branch?",
+					false,
+					func() {
+						a.setInfo("Merging " + b.Name + "…")
+						go func(repo, branch string) {
+							err := MergeBranch(repo, branch)
+							glib.IdleAdd(func() {
+								if err != nil {
+									a.setInfoErr(err.Error())
+								} else {
+									a.setInfoOk("Merged " + branch)
+								}
+								a.doReload(true)
+							})
+						}(a.state.Path, b.Name)
+					},
+				)
+			})
+			acts.Append(mergeBtn)
+
+			delBtn := gtk.NewButtonWithLabel("Delete")
+			delBtn.AddCSSClass("destructive-action")
+			delBtn.ConnectClicked(func() {
+				a.confirmDialog(
+					"Delete branch",
+					"Delete '"+b.Name+"'? This cannot be undone.",
+					true,
+					func() {
+						go func(repo, branch string) {
+							err := DeleteBranch(repo, branch, false)
+							glib.IdleAdd(func() {
+								if err != nil {
+									a.setInfoErr(err.Error())
+								} else {
+									a.setInfoOk("Deleted " + branch)
+								}
+								a.doReload(true)
+							})
+						}(a.state.Path, b.Name)
+					},
+				)
+			})
+			acts.Append(delBtn)
+		}
+
+		if b.IsRemote {
+			trackBtn := gtk.NewButtonWithLabel("Track")
+			trackBtn.ConnectClicked(func() {
+				localName := b.Name
+				if idx := strings.LastIndex(localName, "/"); idx >= 0 {
+					localName = localName[idx+1:]
+				}
+				a.setInfo("Tracking " + b.Name + "…")
+				go func(repo, remote, local string) {
+					err := CheckoutNewBranch(repo, local)
+					if err == nil {
+						_ = gitCmd2(repo, "branch", "--set-upstream-to", remote, local)
+					}
+					glib.IdleAdd(func() {
+						if err != nil {
+							a.setInfoErr(err.Error())
+						} else {
+							a.setInfoOk("Tracking " + local)
+						}
+						a.doReload(true)
+					})
+				}(a.state.Path, b.Name, localName)
+			})
+			acts.Append(trackBtn)
+		}
+
+		outer.Append(acts)
+		row.SetChild(outer)
+		a.branchListBox.Append(row)
+	}
+}
+
+// ── Stash panel ───────────────────────────────────────────────────
+
+func (a *App) openStashPanel() {
+	if a.state == nil {
+		return
+	}
+
+	content := gtk.NewBox(gtk.OrientationVertical, 0)
+
+	// Save row
+	saveBar := gtk.NewBox(gtk.OrientationHorizontal, 8)
+	saveBar.SetMarginTop(10)
+	saveBar.SetMarginBottom(10)
+	saveBar.SetMarginStart(14)
+	saveBar.SetMarginEnd(14)
+
+	msgEntry := gtk.NewEntry()
+	msgEntry.SetPlaceholderText("Stash message (optional)…")
+	msgEntry.SetHExpand(true)
+	saveBar.Append(msgEntry)
+
+	saveBtn := gtk.NewButtonWithLabel("Stash Changes")
+	saveBtn.AddCSSClass("suggested-action")
+	saveBtn.ConnectClicked(func() {
+		if a.state == nil {
+			return
+		}
+		msg := strings.TrimSpace(msgEntry.Text())
+		go func(repo, message string) {
+			err := StashSave(repo, message)
+			glib.IdleAdd(func() {
+				if err != nil {
+					a.setInfoErr(err.Error())
+				} else {
+					msgEntry.SetText("")
+					a.setInfoOk("Stashed")
+				}
+				a.doReload(false)
+				a.populateStashList()
+			})
+		}(a.state.Path, msg)
+	})
+	saveBar.Append(saveBtn)
+	content.Append(saveBar)
+
+	sep := gtk.NewSeparator(gtk.OrientationHorizontal)
+	content.Append(sep)
+
+	scroll := gtk.NewScrolledWindow()
+	scroll.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
+	scroll.SetVExpand(true)
+	scroll.SetSizeRequest(-1, 400)
+
+	a.stashListBox = gtk.NewListBox()
+	a.stashListBox.SetSelectionMode(gtk.SelectionNone)
+	scroll.SetChild(a.stashListBox)
+	content.Append(scroll)
+
+	a.populateStashList()
+
+	card := a.buildOverlayCard("Stash Manager", 800, content)
+	a.showOverlay(card)
+}
+
+func (a *App) populateStashList() {
+	if a.stashListBox == nil {
+		return
+	}
+	clearListBox(a.stashListBox)
+	if a.state == nil || len(a.state.Stashes) == 0 {
+		a.stashListBox.Append(a.makePlaceholderRow("No stashes"))
+		return
+	}
+	for _, s := range a.state.Stashes {
+		s := s
+		row := gtk.NewListBoxRow()
+		row.AddCSSClass("stash-row")
+
+		box := gtk.NewBox(gtk.OrientationHorizontal, 10)
+		box.AddCSSClass("stash-row-box")
+
+		idx := gtk.NewLabel(s.Ref)
+		idx.AddCSSClass("stash-index")
+		idx.SetXAlign(0)
+		idx.SetSizeRequest(90, -1)
+		box.Append(idx)
+
+		info := gtk.NewBox(gtk.OrientationVertical, 2)
+		info.SetHExpand(true)
+
+		msg := gtk.NewLabel(s.Message)
+		msg.SetXAlign(0)
+		msg.AddCSSClass("stash-msg")
+		msg.SetEllipsize(3)
+		info.Append(msg)
+
+		if s.Date != "" {
+			dl := gtk.NewLabel(s.Date)
+			dl.SetXAlign(0)
+			dl.AddCSSClass("stash-meta")
+			info.Append(dl)
+		}
+		box.Append(info)
+
+		// Actions
+		viewBtn := gtk.NewButtonWithLabel("Diff")
+		viewBtn.AddCSSClass("flat")
+		viewBtn.ConnectClicked(func() {
+			if a.state == nil {
+				return
+			}
+			diff := StashShow(a.state.Path, s.Index)
+			a.renderDiff(diff)
+			a.hideOverlay()
+			a.stack.SetVisibleChildName("history")
+		})
+		box.Append(viewBtn)
+
+		applyBtn := gtk.NewButtonWithLabel("Apply")
+		applyBtn.ConnectClicked(func() {
+			if a.state == nil {
+				return
+			}
+			go func(repo string, i int) {
+				err := StashApply(repo, i)
+				glib.IdleAdd(func() {
+					if err != nil {
+						a.setInfoErr(err.Error())
+					} else {
+						a.setInfoOk("Stash applied")
+					}
+					a.doReload(true)
+					a.populateStashList()
+				})
+			}(a.state.Path, s.Index)
+		})
+		box.Append(applyBtn)
+
+		popBtn := gtk.NewButtonWithLabel("Pop")
+		popBtn.AddCSSClass("suggested-action")
+		popBtn.ConnectClicked(func() {
+			if a.state == nil {
+				return
+			}
+			go func(repo string, i int) {
+				err := StashPop(repo, i)
+				glib.IdleAdd(func() {
+					if err != nil {
+						a.setInfoErr(err.Error())
+					} else {
+						a.setInfoOk("Stash popped")
+					}
+					a.doReload(true)
+					a.populateStashList()
+				})
+			}(a.state.Path, s.Index)
+		})
+		box.Append(popBtn)
+
+		dropBtn := gtk.NewButtonWithLabel("Drop")
+		dropBtn.AddCSSClass("destructive-action")
+		dropBtn.ConnectClicked(func() {
+			a.confirmDialog(
+				"Drop stash?",
+				s.Message,
+				true,
+				func() {
+					go func(repo string, i int) {
+						err := StashDrop(repo, i)
+						glib.IdleAdd(func() {
+							if err != nil {
+								a.setInfoErr(err.Error())
+							} else {
+								a.setInfoOk("Stash dropped")
+							}
+							a.doReload(false)
+							a.populateStashList()
+						})
+					}(a.state.Path, s.Index)
+				},
+			)
+		})
+		box.Append(dropBtn)
+
+		row.SetChild(box)
+		a.stashListBox.Append(row)
+	}
+}
+
+// ── Repo config panel ─────────────────────────────────────────────
+
+func (a *App) openRepoConfigPanel() {
+	if a.state == nil || !a.cfg.Features.RepoConfigDialog {
+		return
+	}
+
+	content := gtk.NewBox(gtk.OrientationVertical, 0)
+
+	// Repo info
+	infoBox := gtk.NewBox(gtk.OrientationVertical, 4)
+	infoBox.SetMarginTop(12)
+	infoBox.SetMarginBottom(10)
+	infoBox.SetMarginStart(14)
+	infoBox.SetMarginEnd(14)
+
+	repoLbl := gtk.NewLabel(a.state.Name)
+	repoLbl.SetXAlign(0)
+	repoLbl.AddCSSClass("repo-name")
+	infoBox.Append(repoLbl)
+
+	pathLbl := gtk.NewLabel(a.state.Path)
+	pathLbl.SetXAlign(0)
+	pathLbl.AddCSSClass("repo-path")
+	infoBox.Append(pathLbl)
+
+	upstream := GetBranchUpstream(a.state.Path, a.state.Branch)
+	branchText := "Branch: " + a.state.Branch
+	if upstream != "" {
+		branchText += "  →  " + upstream
+	}
+	bl := gtk.NewLabel(branchText)
+	bl.SetXAlign(0)
+	bl.AddCSSClass("dim")
+	infoBox.Append(bl)
+	content.Append(infoBox)
+
+	content.Append(gtk.NewSeparator(gtk.OrientationHorizontal))
+
+	secLbl := gtk.NewLabel("Remotes")
+	secLbl.SetXAlign(0)
+	secLbl.SetMarginTop(10)
+	secLbl.SetMarginBottom(4)
+	secLbl.SetMarginStart(14)
+	secLbl.AddCSSClass("section-label")
+	content.Append(secLbl)
+
+	scroll := gtk.NewScrolledWindow()
+	scroll.SetVExpand(true)
+	scroll.SetSizeRequest(-1, 260)
+
+	list := gtk.NewListBox()
+	list.SetSelectionMode(gtk.SelectionNone)
+	scroll.SetChild(list)
+	content.Append(scroll)
+
+	var refreshList func()
+	refreshList = func() {
+		clearListBox(list)
+		remotes := GetRemotes(a.state.Path)
+		if len(remotes) == 0 {
+			list.Append(a.makePlaceholderRow("No remotes configured"))
+			return
+		}
+		for _, remote := range remotes {
+			remote := remote
+			row := gtk.NewListBoxRow()
+			box := gtk.NewBox(gtk.OrientationVertical, 6)
+			box.SetMarginTop(10)
+			box.SetMarginBottom(10)
+			box.SetMarginStart(14)
+			box.SetMarginEnd(14)
+
+			head := gtk.NewBox(gtk.OrientationHorizontal, 8)
+			name := gtk.NewLabel(remote.Name)
+			name.SetXAlign(0)
+			name.SetHExpand(true)
+			name.AddCSSClass("repo-name")
+			head.Append(name)
+
+			renameBtn := gtk.NewButtonWithLabel("Rename")
+			renameBtn.ConnectClicked(func() {
+				a.promptDialog("Rename Remote", "New name", remote.Name, func(v string) {
+					if v == "" || v == remote.Name {
+						return
+					}
+					if err := RenameRemote(a.state.Path, remote.Name, v); err != nil {
+						a.setInfoErr(err.Error())
+						return
+					}
+					refreshList()
+					a.doReload(false)
+				})
+			})
+			head.Append(renameBtn)
+
+			urlBtn := gtk.NewButtonWithLabel("Set URL")
+			urlBtn.ConnectClicked(func() {
+				a.promptDialog("Set Remote URL", "URL", remote.FetchURL, func(v string) {
+					if v == "" {
+						return
+					}
+					if err := SetRemoteURL(a.state.Path, remote.Name, v); err != nil {
+						a.setInfoErr(err.Error())
+						return
+					}
+					refreshList()
+					a.doReload(false)
+				})
+			})
+			head.Append(urlBtn)
+
+			rmBtn := gtk.NewButtonWithLabel("Remove")
+			rmBtn.AddCSSClass("destructive-action")
+			rmBtn.ConnectClicked(func() {
+				a.confirmDialog(
+					"Remove remote",
+					"Remove '"+remote.Name+"'?",
+					true,
+					func() {
+						if err := RemoveRemote(a.state.Path, remote.Name); err != nil {
+							a.setInfoErr(err.Error())
+							return
+						}
+						refreshList()
+						a.doReload(false)
+					},
+				)
+			})
+			head.Append(rmBtn)
+			box.Append(head)
+
+			fetchLbl := gtk.NewLabel("Fetch: " + remote.FetchURL)
+			fetchLbl.SetXAlign(0)
+			fetchLbl.SetSelectable(true)
+			fetchLbl.AddCSSClass("repo-path")
+			box.Append(fetchLbl)
+
+			pushLbl := gtk.NewLabel("Push:  " + remote.PushURL)
+			pushLbl.SetXAlign(0)
+			pushLbl.SetSelectable(true)
+			pushLbl.AddCSSClass("repo-path")
+			box.Append(pushLbl)
+
+			row.SetChild(box)
+			list.Append(row)
+		}
+	}
+
+	// Add remote
+	addBar := gtk.NewBox(gtk.OrientationHorizontal, 8)
+	addBar.SetMarginTop(8)
+	addBar.SetMarginBottom(8)
+	addBar.SetMarginStart(14)
+	addBar.SetMarginEnd(14)
+
+	addName := gtk.NewEntry()
+	addName.SetPlaceholderText("name")
+	addName.SetSizeRequest(110, -1)
+
+	addURL := gtk.NewEntry()
+	addURL.SetPlaceholderText("url")
+	addURL.SetHExpand(true)
+
+	addBtn := gtk.NewButtonWithLabel("Add")
+	addBtn.AddCSSClass("suggested-action")
+	addBtn.ConnectClicked(func() {
+		n := strings.TrimSpace(addName.Text())
+		u := strings.TrimSpace(addURL.Text())
+		if n == "" || u == "" {
+			return
+		}
+		if err := AddRemote(a.state.Path, n, u); err != nil {
+			a.setInfoErr(err.Error())
+			return
+		}
+		addName.SetText("")
+		addURL.SetText("")
+		refreshList()
+		a.doReload(false)
+	})
+
+	addBar.Append(addName)
+	addBar.Append(addURL)
+	addBar.Append(addBtn)
+	content.Append(addBar)
+	refreshList()
+
+	card := a.buildOverlayCard("Repository Remotes", 760, content)
+	a.showOverlay(card)
+}
+
+// ── New branch dialog ─────────────────────────────────────────────
+
+func (a *App) openNewBranchDialog() {
+	if a.state == nil {
+		return
+	}
+	content := gtk.NewBox(gtk.OrientationVertical, 14)
+	content.SetMarginTop(16)
+	content.SetMarginBottom(16)
+	content.SetMarginStart(16)
+	content.SetMarginEnd(16)
+
+	entry := gtk.NewEntry()
+	entry.SetPlaceholderText("Branch name")
+	content.Append(entry)
+
+	btnRow := gtk.NewBox(gtk.OrientationHorizontal, 8)
+	btnRow.SetHAlign(gtk.AlignEnd)
+
+	cancelBtn := gtk.NewButtonWithLabel("Cancel")
+	cancelBtn.ConnectClicked(func() { a.hideOverlay() })
+	btnRow.Append(cancelBtn)
+
+	createBtn := gtk.NewButtonWithLabel("Create & Checkout")
+	createBtn.AddCSSClass("suggested-action")
+	createBtn.ConnectClicked(func() {
+		name := strings.TrimSpace(entry.Text())
+		if name == "" {
+			return
+		}
+		go func(repo, branch string) {
+			err := CheckoutNewBranch(repo, branch)
+			glib.IdleAdd(func() {
+				if err != nil {
+					a.setInfoErr(err.Error())
+				} else {
+					a.setInfoOk("Created " + branch)
+				}
+				a.hideOverlay()
+				a.doReload(true)
+			})
+		}(a.state.Path, name)
+	})
+	btnRow.Append(createBtn)
+	content.Append(btnRow)
+
+	card := a.buildOverlayCard("New Branch", 420, content)
+	a.showOverlay(card)
+}
+
+// ── Header info ───────────────────────────────────────────────────
 
 func (a *App) updateHeaderInfo() {
 	if a.state == nil {
@@ -1235,19 +1862,21 @@ func (a *App) updateHeaderInfo() {
 		a.setInfo("")
 		return
 	}
-
 	a.repoTitle.SetText(a.state.Name)
 	a.repoPath.SetText(a.state.Path)
 
-	parts := []string{}
-	if len(a.state.Branches) > 0 {
-		parts = append(parts, strconv.Itoa(len(a.state.Branches))+" branches")
+	var parts []string
+	if n := len(a.state.Branches); n > 0 {
+		parts = append(parts, strconv.Itoa(n)+" branches")
 	}
-	if len(a.state.Remotes) > 0 {
-		parts = append(parts, strconv.Itoa(len(a.state.Remotes))+" remotes")
+	if n := len(a.state.Remotes); n > 0 {
+		parts = append(parts, strconv.Itoa(n)+" remotes")
 	}
-	if len(a.state.Commits) > 0 {
-		parts = append(parts, strconv.Itoa(len(a.state.Commits))+" commits")
+	if n := len(a.state.Commits); n > 0 {
+		parts = append(parts, strconv.Itoa(n)+" commits")
+	}
+	if n := len(a.state.Stashes); n > 0 {
+		parts = append(parts, strconv.Itoa(n)+" stashes")
 	}
 	a.setInfo(strings.Join(parts, " · "))
 }
@@ -1256,20 +1885,15 @@ func (a *App) updateRemoteSummary() {
 	if a.remoteLabel == nil || a.state == nil {
 		return
 	}
-	if !a.cfg.Features.ShowRemoteSummary {
+	if !a.cfg.Features.ShowRemoteSummary || len(a.state.Remotes) == 0 {
 		a.remoteLabel.SetText("")
 		return
 	}
-	if len(a.state.Remotes) == 0 {
-		a.remoteLabel.SetText("No remotes configured")
-		return
-	}
-
 	names := make([]string, 0, len(a.state.Remotes))
 	for _, r := range a.state.Remotes {
 		names = append(names, r.Name)
 	}
-	a.remoteLabel.SetText("Remotes: " + strings.Join(names, ", "))
+	a.remoteLabel.SetText(strings.Join(names, ", "))
 }
 
 func (a *App) updateStatusStrip() {
@@ -1279,10 +1903,7 @@ func (a *App) updateStatusStrip() {
 		a.statsLabel.SetText("")
 		return
 	}
-
-	staged := 0
-	changed := 0
-
+	staged, changed := 0, 0
 	for _, f := range a.state.Files {
 		if f.Staged {
 			staged++
@@ -1291,17 +1912,25 @@ func (a *App) updateStatusStrip() {
 		}
 	}
 
-	a.branchLabel.SetText("Branch: " + a.state.Branch)
+	a.branchLabel.SetText(" " + a.state.Branch)
 
 	if a.state.Ahead > 0 || a.state.Behind > 0 {
-		a.aheadLabel.SetText(
-			fmt.Sprintf("↑%d ↓%d", a.state.Ahead, a.state.Behind),
-		)
+		a.aheadLabel.SetText(fmt.Sprintf("↑%d ↓%d", a.state.Ahead, a.state.Behind))
 	} else {
 		a.aheadLabel.SetText("")
 	}
 
-	a.statsLabel.SetText(fmt.Sprintf("%d staged · %d changed", staged, changed))
+	var parts []string
+	if staged > 0 {
+		parts = append(parts, strconv.Itoa(staged)+" staged")
+	}
+	if changed > 0 {
+		parts = append(parts, strconv.Itoa(changed)+" changed")
+	}
+	if n := len(a.state.Stashes); n > 0 {
+		parts = append(parts, strconv.Itoa(n)+" stashed")
+	}
+	a.statsLabel.SetText(strings.Join(parts, " · "))
 }
 
 func (a *App) updateCommitButton() {
@@ -1309,47 +1938,41 @@ func (a *App) updateCommitButton() {
 		a.commitButton.SetSensitive(false)
 		return
 	}
-
 	msg := strings.TrimSpace(a.commitEntry.Text())
 	hasStaged := false
-
 	for _, f := range a.state.Files {
 		if f.Staged {
 			hasStaged = true
 			break
 		}
 	}
-
 	a.commitButton.SetSensitive(msg != "" && hasStaged)
 }
 
+// ── Diff ──────────────────────────────────────────────────────────
+
 func (a *App) renderDiff(diff string) {
 	a.diffBuf.SetText("")
-
 	if strings.TrimSpace(diff) == "" {
 		a.diffBuf.SetText("No changes to display")
 		return
 	}
 
-	tagTable := a.diffBuf.TagTable()
-
-	ensureTag := func(name, fg string) {
-		if tagTable.Lookup(name) != nil {
+	tt := a.diffBuf.TagTable()
+	ensure := func(name, fg string) {
+		if tt.Lookup(name) != nil {
 			return
 		}
-	
 		tag := gtk.NewTextTag(name)
 		tag.SetObjectProperty("foreground", fg)
-	
-		tagTable.Add(tag)
+		tt.Add(tag)
 	}
-	
-	ensureTag("added", a.cfg.Colors.Added)
-	ensureTag("removed", a.cfg.Colors.Removed)
-	ensureTag("header", a.cfg.Colors.Accent)
-	ensureTag("hunk", a.cfg.Colors.TextDim)
-	ensureTag("normal", a.cfg.Colors.Text)
-	ensureTag("modified", a.cfg.Colors.Modified)
+	ensure("added", a.cfg.Colors.Added)
+	ensure("removed", a.cfg.Colors.Removed)
+	ensure("header", a.cfg.Colors.Accent)
+	ensure("hunk", a.cfg.Colors.TextDim)
+	ensure("normal", a.cfg.Colors.Text)
+	ensure("modified", a.cfg.Colors.Modified)
 
 	for _, line := range strings.Split(diff, "\n") {
 		start := a.diffBuf.EndIter()
@@ -1358,13 +1981,8 @@ func (a *App) renderDiff(diff string) {
 
 		tag := "normal"
 		switch {
-		case strings.HasPrefix(line, "diff "):
-			tag = "header"
-		case strings.HasPrefix(line, "index "):
-			tag = "header"
-		case strings.HasPrefix(line, "+++ "):
-			tag = "header"
-		case strings.HasPrefix(line, "--- "):
+		case strings.HasPrefix(line, "diff "), strings.HasPrefix(line, "index "),
+			strings.HasPrefix(line, "+++ "), strings.HasPrefix(line, "--- "):
 			tag = "header"
 		case strings.HasPrefix(line, "@@"):
 			tag = "hunk"
@@ -1372,9 +1990,7 @@ func (a *App) renderDiff(diff string) {
 			tag = "added"
 		case strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---"):
 			tag = "removed"
-		case strings.HasPrefix(line, "rename "):
-			tag = "modified"
-		case strings.HasPrefix(line, "similarity "):
+		case strings.HasPrefix(line, "rename "), strings.HasPrefix(line, "similarity "):
 			tag = "modified"
 		}
 
@@ -1392,23 +2008,19 @@ func (a *App) loadFileDiff(path string, staged bool) {
 	if a.state == nil {
 		return
 	}
-
 	if !a.cfg.Features.AsyncDiffLoading {
 		a.renderDiff(GetFileDiff(a.state.Path, path, staged))
 		return
 	}
-
-	reqID := a.nextDiffRequestID()
-	repoPath := a.state.Path
-	a.renderDiff("Loading diff…")
-
+	id := a.nextDiffRequestID()
+	repo := a.state.Path
+	a.renderDiff("Loading…")
 	go func() {
-		diff := GetFileDiff(repoPath, path, staged)
+		d := GetFileDiff(repo, path, staged)
 		glib.IdleAdd(func() {
-			if reqID != atomic.LoadUint64(&a.diffReqID) {
-				return
+			if id == atomic.LoadUint64(&a.diffReqID) {
+				a.renderDiff(d)
 			}
-			a.renderDiff(diff)
 		})
 	}()
 }
@@ -1417,308 +2029,54 @@ func (a *App) loadCommitDiff(hash string) {
 	if a.state == nil {
 		return
 	}
-
 	if !a.cfg.Features.AsyncDiffLoading {
 		a.renderDiff(GetCommitDiff(a.state.Path, hash))
 		return
 	}
-
-	reqID := a.nextDiffRequestID()
-	repoPath := a.state.Path
-	a.renderDiff("Loading diff…")
-
+	id := a.nextDiffRequestID()
+	repo := a.state.Path
+	a.renderDiff("Loading…")
 	go func() {
-		diff := GetCommitDiff(repoPath, hash)
+		d := GetCommitDiff(repo, hash)
 		glib.IdleAdd(func() {
-			if reqID != atomic.LoadUint64(&a.diffReqID) {
-				return
+			if id == atomic.LoadUint64(&a.diffReqID) {
+				a.renderDiff(d)
 			}
-			a.renderDiff(diff)
 		})
 	}()
 }
 
-func (a *App) openRepoConfigDialog() {
-	if a.state == nil || !a.cfg.Features.RepoConfigDialog {
-		return
-	}
+// ── Utilities ─────────────────────────────────────────────────────
 
-	dialog := gtk.NewDialog()
-	dialog.SetModal(true)
-	dialog.SetTitle("Repository Config")
-	dialog.SetDefaultSize(760, 520)
-
-	content := dialog.ContentArea()
-	content.SetSpacing(12)
-	content.SetMarginTop(12)
-	content.SetMarginBottom(12)
-	content.SetMarginStart(12)
-	content.SetMarginEnd(12)
-
-	title := gtk.NewLabel("Repository: " + a.state.Name)
-	title.SetXAlign(0)
-	title.AddCSSClass("repo-name")
-	content.Append(title)
-
-	pathLabel := gtk.NewLabel(a.state.Path)
-	pathLabel.SetXAlign(0)
-	pathLabel.AddCSSClass("repo-path")
-	content.Append(pathLabel)
-
-	branchText := "Current branch: " + a.state.Branch
-	upstream := GetBranchUpstream(a.state.Path, a.state.Branch)
-	if upstream != "" {
-		branchText += " · upstream: " + upstream
-	}
-
-	branchLabel := gtk.NewLabel(branchText)
-	branchLabel.SetXAlign(0)
-	branchLabel.AddCSSClass("dim")
-	content.Append(branchLabel)
-
-	section := gtk.NewLabel("REMOTES")
-	section.SetXAlign(0)
-	section.AddCSSClass("section-title")
-	content.Append(section)
-
-	scroll := gtk.NewScrolledWindow()
-	scroll.SetVExpand(true)
-	scroll.SetHExpand(true)
-	content.Append(scroll)
-
-	list := gtk.NewListBox()
-	list.SetSelectionMode(gtk.SelectionNone)
-	scroll.SetChild(list)
-
-	var refreshList func()
-	refreshList = func() {
-		clearListBox(list)
-
-		remotes := GetRemotes(a.state.Path)
-		if len(remotes) == 0 {
-			row := gtk.NewListBoxRow()
-			row.SetSelectable(false)
-
-			lbl := gtk.NewLabel("No remotes configured")
-			lbl.SetXAlign(0)
-			lbl.SetMarginTop(12)
-			lbl.SetMarginBottom(12)
-			lbl.SetMarginStart(12)
-			row.SetChild(lbl)
-
-			list.Append(row)
-			return
-		}
-
-		for _, remote := range remotes {
-			remote := remote
-
-			row := gtk.NewListBoxRow()
-
-			box := gtk.NewBox(gtk.OrientationVertical, 8)
-			box.SetMarginTop(10)
-			box.SetMarginBottom(10)
-			box.SetMarginStart(12)
-			box.SetMarginEnd(12)
-
-			head := gtk.NewBox(gtk.OrientationHorizontal, 8)
-
-			name := gtk.NewLabel(remote.Name)
-			name.SetXAlign(0)
-			name.SetHExpand(true)
-			name.AddCSSClass("repo-name")
-			head.Append(name)
-
-			renameBtn := gtk.NewButtonWithLabel("Rename")
-			urlBtn := gtk.NewButtonWithLabel("Set URL")
-			removeBtn := gtk.NewButtonWithLabel("Remove")
-
-			head.Append(renameBtn)
-			head.Append(urlBtn)
-			head.Append(removeBtn)
-
-			fetch := gtk.NewLabel("Fetch: " + remote.FetchURL)
-			fetch.SetXAlign(0)
-			fetch.SetSelectable(true)
-			fetch.AddCSSClass("repo-path")
-
-			push := gtk.NewLabel("Push: " + remote.PushURL)
-			push.SetXAlign(0)
-			push.SetSelectable(true)
-			push.AddCSSClass("repo-path")
-
-			box.Append(head)
-			box.Append(fetch)
-			box.Append(push)
-
-			row.SetChild(box)
-			list.Append(row)
-
-			renameBtn.ConnectClicked(func() {
-				a.promptTextDialog(
-					"Rename Remote",
-					"New remote name",
-					remote.Name,
-					func(value string) {
-						if value == "" || value == remote.Name {
-							return
-						}
-						if err := RenameRemote(a.state.Path, remote.Name, value); err != nil {
-							a.setInfo("Rename remote failed: " + err.Error())
-							return
-						}
-						refreshList()
-						if a.cfg.Features.AsyncStateReload {
-							a.reloadStateAsync(false)
-						} else {
-							a.reloadState(false)
-						}
-					},
-				)
-			})
-
-			urlBtn.ConnectClicked(func() {
-				a.promptTextDialog(
-					"Set Remote URL",
-					"Remote URL",
-					remote.FetchURL,
-					func(value string) {
-						if value == "" {
-							return
-						}
-						if err := SetRemoteURL(a.state.Path, remote.Name, value); err != nil {
-							a.setInfo("Set remote URL failed: " + err.Error())
-							return
-						}
-						refreshList()
-						if a.cfg.Features.AsyncStateReload {
-							a.reloadStateAsync(false)
-						} else {
-							a.reloadState(false)
-						}
-					},
-				)
-			})
-
-			removeBtn.ConnectClicked(func() {
-				if err := RemoveRemote(a.state.Path, remote.Name); err != nil {
-					a.setInfo("Remove remote failed: " + err.Error())
-					return
-				}
-				refreshList()
-				if a.cfg.Features.AsyncStateReload {
-					a.reloadStateAsync(false)
-				} else {
-					a.reloadState(false)
-				}
-			})
-		}
-	}
-
-	addBox := gtk.NewBox(gtk.OrientationHorizontal, 8)
-
-	addName := gtk.NewEntry()
-	addName.SetPlaceholderText("remote name")
-
-	addURL := gtk.NewEntry()
-	addURL.SetPlaceholderText("remote url")
-	addURL.SetHExpand(true)
-
-	addBtn := gtk.NewButtonWithLabel("Add Remote")
-	addBtn.ConnectClicked(func() {
-		name := strings.TrimSpace(addName.Text())
-		url := strings.TrimSpace(addURL.Text())
-		if name == "" || url == "" {
-			return
-		}
-
-		if err := AddRemote(a.state.Path, name, url); err != nil {
-			a.setInfo("Add remote failed: " + err.Error())
-			return
-		}
-
-		addName.SetText("")
-		addURL.SetText("")
-		refreshList()
-
-		if a.cfg.Features.AsyncStateReload {
-			a.reloadStateAsync(false)
-		} else {
-			a.reloadState(false)
-		}
-	})
-
-	addBox.Append(addName)
-	addBox.Append(addURL)
-	addBox.Append(addBtn)
-	content.Append(addBox)
-
-	refreshList()
-
-	dialog.AddButton("Close", int(gtk.ResponseClose))
-	dialog.ConnectResponse(func(id int) {
-		dialog.Close()
-	})
-	dialog.Present()
-}
-
-func (a *App) promptTextDialog(
-	title string,
-	placeholder string,
-	initial string,
-	onSubmit func(string),
-) {
-	dialog := gtk.NewDialog()
-	dialog.SetModal(true)
-	dialog.SetTitle(title)
-
-	content := dialog.ContentArea()
-	content.SetSpacing(12)
-	content.SetMarginTop(12)
-	content.SetMarginBottom(12)
-	content.SetMarginStart(12)
-	content.SetMarginEnd(12)
-
-	entry := gtk.NewEntry()
-	entry.SetPlaceholderText(placeholder)
-	entry.SetText(initial)
-	entry.SetActivatesDefault(true)
-	content.Append(entry)
-
-	dialog.AddButton("Cancel", int(gtk.ResponseCancel))
-	ok := dialog.AddButton("OK", int(gtk.ResponseAccept))
-	if btn, ok := ok.(*gtk.Widget); ok {
-	    btn.AddCSSClass("suggested-action")
-	}
-	dialog.SetDefaultResponse(int(gtk.ResponseAccept))
-
-	dialog.ConnectResponse(func(id int) {
-		if id == int(gtk.ResponseAccept) {
-			onSubmit(strings.TrimSpace(entry.Text()))
-		}
-		dialog.Close()
-	})
-
-	dialog.Present()
-}
-
-func (a *App) markSelectedRow(list *gtk.ListBox, selected *gtk.ListBoxRow) {
+func (a *App) markSelectedRow(list *gtk.ListBox, row *gtk.ListBoxRow) {
 	if list == a.fileListBox {
 		if a.selectedFileRow != nil {
 			a.selectedFileRow.RemoveCSSClass("selected")
 		}
-		selected.AddCSSClass("selected")
-		a.selectedFileRow = selected
+		row.AddCSSClass("selected")
+		a.selectedFileRow = row
 		return
 	}
-
 	if list == a.commitListBox {
 		if a.selectedCommitRow != nil {
 			a.selectedCommitRow.RemoveCSSClass("selected")
 		}
-		selected.AddCSSClass("selected")
-		a.selectedCommitRow = selected
+		row.AddCSSClass("selected")
+		a.selectedCommitRow = row
 	}
+}
+
+func (a *App) makePlaceholderRow(text string) *gtk.ListBoxRow {
+	row := gtk.NewListBoxRow()
+	row.SetSelectable(false)
+	lbl := gtk.NewLabel(text)
+	lbl.SetXAlign(0)
+	lbl.SetMarginTop(12)
+	lbl.SetMarginBottom(12)
+	lbl.SetMarginStart(14)
+	lbl.AddCSSClass("dim")
+	row.SetChild(lbl)
+	return row
 }
 
 func clearListBox(list *gtk.ListBox) {
@@ -1732,8 +2090,7 @@ func clearListBox(list *gtk.ListBox) {
 }
 
 func statusMark(f FileStatus) string {
-	k := statusKind(f)
-	switch k {
+	switch statusKind(f) {
 	case "A":
 		return "A"
 	case "M":
@@ -1743,7 +2100,7 @@ func statusMark(f FileStatus) string {
 	case "?":
 		return "U"
 	default:
-		return "•"
+		return "·"
 	}
 }
 
@@ -1757,3 +2114,12 @@ func statusKind(f FileStatus) string {
 	}
 	return s
 }
+
+func gitCmd2(repoPath string, args ...string) error {
+	_, err := gitCmd(repoPath, args...)
+	return err
+}
+
+// Kept for backward compat
+func (a *App) openRepoConfigDialog() { a.openRepoConfigPanel() }
+func (a *App) populateStashes()      { a.populateStashList() }

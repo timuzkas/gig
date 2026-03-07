@@ -31,12 +31,15 @@ type FileStatus struct {
 }
 
 type BranchInfo struct {
-	Name    string
-	Current bool
-	Remote  string
-	Hash    string
-	Subject string
-	Date    string
+	Name       string
+	Current    bool
+	Remote     string
+	Hash       string
+	Subject    string
+	Date       string
+	Ahead      int
+	Behind     int
+	IsRemote   bool
 }
 
 type RemoteInfo struct {
@@ -50,6 +53,13 @@ type RepoInfo struct {
 	Path string
 }
 
+type StashEntry struct {
+	Index   int
+	Ref     string
+	Message string
+	Date    string
+}
+
 type RepoState struct {
 	Path     string
 	Name     string
@@ -58,6 +68,7 @@ type RepoState struct {
 	Files    []FileStatus
 	Branches []BranchInfo
 	Remotes  []RemoteInfo
+	Stashes  []StashEntry
 	Ahead    int
 	Behind   int
 }
@@ -94,12 +105,10 @@ func GetCurrentBranch(repoPath string) string {
 	if err == nil && out != "" {
 		return out
 	}
-
 	head, err := gitCmd(repoPath, "rev-parse", "--short", "HEAD")
 	if err != nil {
 		return "unknown"
 	}
-
 	return "(detached " + head + ")"
 }
 
@@ -108,7 +117,7 @@ func GetBranches(repoPath string) []BranchInfo {
 		repoPath,
 		"branch",
 		"-a",
-		"--format=%(HEAD)|%(refname:short)|%(upstream:short)|%(objectname:short)|%(subject)|%(authordate:relative)",
+		"--format=%(HEAD)|%(refname:short)|%(upstream:short)|%(objectname:short)|%(subject)|%(authordate:relative)|%(upstream:track,nobracket)",
 	)
 	if err != nil {
 		return nil
@@ -121,14 +130,24 @@ func GetBranches(repoPath string) []BranchInfo {
 			continue
 		}
 
-		parts := strings.SplitN(line, "|", 6)
+		parts := strings.SplitN(line, "|", 7)
 		if len(parts) < 2 {
 			continue
 		}
 
+		name := strings.TrimSpace(parts[1])
+		// Skip remote tracking aliases (remotes/origin/HEAD -> ...)
+		if strings.Contains(name, " -> ") {
+			continue
+		}
+
 		b := BranchInfo{
-			Current: strings.TrimSpace(parts[0]) == "*",
-			Name:    strings.TrimSpace(parts[1]),
+			Current:  strings.TrimSpace(parts[0]) == "*",
+			Name:     name,
+			IsRemote: strings.HasPrefix(name, "remotes/"),
+		}
+		if b.IsRemote {
+			b.Name = strings.TrimPrefix(b.Name, "remotes/")
 		}
 		if len(parts) > 2 {
 			b.Remote = strings.TrimSpace(parts[2])
@@ -141,6 +160,19 @@ func GetBranches(repoPath string) []BranchInfo {
 		}
 		if len(parts) > 5 {
 			b.Date = strings.TrimSpace(parts[5])
+		}
+		if len(parts) > 6 {
+			track := strings.TrimSpace(parts[6])
+			if track != "" {
+				fmt.Sscanf(track, "ahead %d", &b.Ahead)
+				fmt.Sscanf(track, "behind %d", &b.Behind)
+				// "ahead N, behind M"
+				if strings.Contains(track, ",") {
+					p := strings.SplitN(track, ",", 2)
+					fmt.Sscanf(strings.TrimSpace(p[0]), "ahead %d", &b.Ahead)
+					fmt.Sscanf(strings.TrimSpace(p[1]), "behind %d", &b.Behind)
+				}
+			}
 		}
 
 		branches = append(branches, b)
@@ -215,12 +247,6 @@ func GetBranchUpstream(repoPath, branch string) string {
 	}
 	return strings.TrimSpace(out)
 }
-
-func SetBranchUpstream(repoPath, branch, upstream string) error {
-	_, err := gitCmd(repoPath, "branch", "--set-upstream-to", upstream, branch)
-	return err
-}
-
 
 func GetAheadBehind(repoPath string) (int, int) {
 	out, err := gitCmd(
@@ -303,9 +329,9 @@ func GetStatus(repoPath string) []FileStatus {
 
 		x := string(line[0])
 		y := string(line[1])
-		path := strings.TrimSpace(line[3:])
-
-		if x != " " {
+		path := strings.TrimSpace(line[2:])
+		
+		if x != " " && x != "?" {
 			files = append(files, FileStatus{
 				Path:        path,
 				IndexStatus: x,
@@ -330,6 +356,69 @@ func GetStatus(repoPath string) []FileStatus {
 	return files
 }
 
+// ── Stash ────────────────────────────────────────────────────────
+
+func GetStashes(repoPath string) []StashEntry {
+	out, err := gitCmd(repoPath, "stash", "list", "--format=%gd|%s|%ar")
+	if err != nil || strings.TrimSpace(out) == "" {
+		return nil
+	}
+
+	var stashes []StashEntry
+	for i, line := range strings.Split(out, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "|", 3)
+		s := StashEntry{Index: i}
+		if len(parts) > 0 {
+			s.Ref = strings.TrimSpace(parts[0])
+		}
+		if len(parts) > 1 {
+			s.Message = strings.TrimSpace(parts[1])
+		}
+		if len(parts) > 2 {
+			s.Date = strings.TrimSpace(parts[2])
+		}
+		stashes = append(stashes, s)
+	}
+	return stashes
+}
+
+func StashSave(repoPath, message string) error {
+	args := []string{"stash", "push"}
+	if message != "" {
+		args = append(args, "-m", message)
+	}
+	_, err := gitCmd(repoPath, args...)
+	return err
+}
+
+func StashPop(repoPath string, index int) error {
+	_, err := gitCmd(repoPath, "stash", "pop", fmt.Sprintf("stash@{%d}", index))
+	return err
+}
+
+func StashApply(repoPath string, index int) error {
+	_, err := gitCmd(repoPath, "stash", "apply", fmt.Sprintf("stash@{%d}", index))
+	return err
+}
+
+func StashDrop(repoPath string, index int) error {
+	_, err := gitCmd(repoPath, "stash", "drop", fmt.Sprintf("stash@{%d}", index))
+	return err
+}
+
+func StashShow(repoPath string, index int) string {
+	out, err := gitCmd(repoPath, "stash", "show", "-p", "--no-color", fmt.Sprintf("stash@{%d}", index))
+	if err != nil {
+		return ""
+	}
+	return out
+}
+
+// ── Diff / Show ──────────────────────────────────────────────────
+
 func GetFileDiff(repoPath, filePath string, staged bool) string {
 	args := []string{"diff", "--no-color"}
 	if staged {
@@ -341,7 +430,6 @@ func GetFileDiff(repoPath, filePath string, staged bool) string {
 	if err != nil {
 		return ""
 	}
-
 	return out
 }
 
@@ -353,6 +441,8 @@ func GetCommitDiff(repoPath, hash string) string {
 	return out
 }
 
+// ── Stage / Unstage ──────────────────────────────────────────────
+
 func StageFile(repoPath, filePath string) error {
 	_, err := gitCmd(repoPath, "add", "--", filePath)
 	return err
@@ -362,6 +452,13 @@ func UnstageFile(repoPath, filePath string) error {
 	_, err := gitCmd(repoPath, "reset", "HEAD", "--", filePath)
 	return err
 }
+
+func StageAll(repoPath string) error {
+	_, err := gitCmd(repoPath, "add", "-A")
+	return err
+}
+
+// ── Commit / Branch ops ─────────────────────────────────────────
 
 func DoCommit(repoPath, message string) error {
 	_, err := gitCmd(repoPath, "commit", "-m", message)
@@ -373,6 +470,37 @@ func Checkout(repoPath, branch string) error {
 	return err
 }
 
+func CheckoutNewBranch(repoPath, branch string) error {
+	_, err := gitCmd(repoPath, "checkout", "-b", branch)
+	return err
+}
+
+func DeleteBranch(repoPath, branch string, force bool) error {
+	flag := "-d"
+	if force {
+		flag = "-D"
+	}
+	_, err := gitCmd(repoPath, "branch", flag, branch)
+	return err
+}
+
+func RenameBranch(repoPath, oldName, newName string) error {
+	_, err := gitCmd(repoPath, "branch", "-m", oldName, newName)
+	return err
+}
+
+func MergeBranch(repoPath, branch string) error {
+	_, err := gitCmd(repoPath, "merge", branch, "--no-edit")
+	return err
+}
+
+func RebaseBranch(repoPath, onto string) error {
+	_, err := gitCmd(repoPath, "rebase", onto)
+	return err
+}
+
+// ── Remote ops ───────────────────────────────────────────────────
+
 func Pull(repoPath string) error {
 	_, err := gitCmd(repoPath, "pull")
 	return err
@@ -383,10 +511,17 @@ func Push(repoPath string) error {
 	return err
 }
 
+func PushSetUpstream(repoPath, remote, branch string) error {
+	_, err := gitCmd(repoPath, "push", "--set-upstream", remote, branch)
+	return err
+}
+
 func Fetch(repoPath string) error {
 	_, err := gitCmd(repoPath, "fetch", "--all")
 	return err
 }
+
+// ── State loader ─────────────────────────────────────────────────
 
 func LoadRepoState(repoPath string, maxCommits int) *RepoState {
 	root, err := FindRepoRoot(repoPath)
@@ -404,6 +539,7 @@ func LoadRepoState(repoPath string, maxCommits int) *RepoState {
 		Files:    GetStatus(root),
 		Branches: GetBranches(root),
 		Remotes:  GetRemotes(root),
+		Stashes:  GetStashes(root),
 		Ahead:    ahead,
 		Behind:   behind,
 	}
