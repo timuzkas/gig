@@ -93,6 +93,9 @@ type App struct {
 	branchDropUpdating bool
 	infoStickyUntil    time.Time
 
+	overlayStack   []gtk.Widgetter
+	overlayTimeout glib.SourceHandle
+
 	conflictFiles    []ConflictFile
 	conflictFileIdx  int
 	conflictHunkIdx  int
@@ -109,6 +112,10 @@ type App struct {
 	conflictDrafts map[string]string
 	conflictLoading bool
 	conflictPanelOpen bool
+	conflictPanel *gtk.Box
+	
+	conflictHunkStarts []int
+	conflictHunkEnds   []int
 }
 
 func NewApp(cfg Config) *App {
@@ -224,9 +231,16 @@ func (a *App) buildOverlayPanel() {
 }
 
 func (a *App) showOverlay(child gtk.Widgetter) {
+	if a.overlayTimeout != 0 {
+		glib.SourceRemove(a.overlayTimeout)
+		a.overlayTimeout = 0
+	}
+
 	if prev := a.overlayReveal.Child(); prev != nil {
+		a.overlayStack = append(a.overlayStack, prev)
 		a.overlayReveal.SetChild(nil)
 	}
+
 	a.overlayReveal.SetChild(child)
 	a.overlayBox.SetVisible(true)
 	glib.TimeoutAdd(16, func() bool {
@@ -236,9 +250,30 @@ func (a *App) showOverlay(child gtk.Widgetter) {
 }
 
 func (a *App) hideOverlay() {
-	a.conflictPanelOpen = false
+	if a.overlayReveal.Child() == a.conflictPanel {
+		a.conflictPanelOpen = false
+	}
 	a.overlayReveal.SetRevealChild(false)
-	glib.TimeoutAdd(200, func() bool {
+
+	if a.overlayTimeout != 0 {
+		glib.SourceRemove(a.overlayTimeout)
+		a.overlayTimeout = 0
+	}
+
+	a.overlayTimeout = glib.TimeoutAdd(200, func() bool {
+		a.overlayTimeout = 0
+		if a.overlayReveal.RevealChild() {
+			return false
+		}
+
+		if len(a.overlayStack) > 0 {
+			next := a.overlayStack[len(a.overlayStack)-1]
+			a.overlayStack = a.overlayStack[:len(a.overlayStack)-1]
+			a.overlayReveal.SetChild(next)
+			a.overlayReveal.SetRevealChild(true)
+			return false
+		}
+
 		a.overlayBox.SetVisible(false)
 		if prev := a.overlayReveal.Child(); prev != nil {
 			a.overlayReveal.SetChild(nil)
@@ -446,18 +481,21 @@ func (a *App) openConflictPanel() {
 	if a.state == nil {
 		return
 	}
+	if !a.conflictPanelOpen {
+		a.conflictFileIdx = -1
+		a.conflictHunkIdx = 0
+		a.conflictDrafts = make(map[string]string)
+	}
 	a.conflictPanelOpen = true
 	a.conflictFiles = GetConflictFiles(a.state.Path)
 	if len(a.conflictFiles) == 0 {
 		return
 	}
-	a.conflictFileIdx = -1
-	a.conflictHunkIdx = 0
-	a.conflictDrafts = make(map[string]string)
 
 	card := gtk.NewBox(gtk.OrientationVertical, 0)
 	card.AddCSSClass("overlay-panel")
 	card.SetSizeRequest(1100, 700)
+	a.conflictPanel = card
 
 	hdr := gtk.NewBox(gtk.OrientationHorizontal, 10)
 	hdr.AddCSSClass("overlay-header")
@@ -833,6 +871,25 @@ func (a *App) loadConflictFile() {
 	content, _ := os.ReadFile(filepath.Join(a.state.Path, cf.Path))
 	currentText := a.getConflictDraft(cf.Path, string(content))
 	cf.Hunks = ParseConflictHunks(currentText)
+	
+	a.conflictHunkStarts = make([]int, len(cf.Hunks))
+	a.conflictHunkEnds = make([]int, len(cf.Hunks))
+	for i, h := range cf.Hunks {
+		a.conflictHunkStarts[i] = h.StartLine
+		// end line is calculated based on current markers
+		lines := strings.Split(currentText, "\n")
+		count := 0
+		for j, line := range lines {
+			trimmed := strings.TrimRight(line, "\r")
+			if strings.HasPrefix(trimmed, ">>>>>>>") {
+				if count == i {
+					a.conflictHunkEnds[i] = j
+					break
+				}
+				count++
+			}
+		}
+	}
 
 	a.conflictLoading = true
 	a.conflictOursBuf.SetText(ours)
@@ -901,32 +958,16 @@ func (a *App) applyHunkResolution(r HunkResolution) {
 		lines = append(hunk.OursLines, hunk.TheirsLines...)
 	case ResolutionBothRev:
 		lines = append(hunk.TheirsLines, hunk.OursLines...)
-	}
-
-	currentIdx := a.conflictHunkIdx
-	a.spliceResolutionBuffer(hunk, lines)
-
-	text := a.getConflictDraft(
-		cf.Path,
-		a.conflictResBuf.Text(
-			a.conflictResBuf.StartIter(),
-			a.conflictResBuf.EndIter(),
-			false,
-		),
-	)
-
-	cf.Hunks = ParseConflictHunks(text)
-
-	if len(cf.Hunks) == 0 {
-		a.conflictHunkIdx = 0
-		a.updateHunkNav()
+	default:
 		return
 	}
 
-	if currentIdx >= len(cf.Hunks) {
+	a.spliceResolutionBuffer(hunk, lines)
+
+	if len(cf.Hunks) == 0 {
+		a.conflictHunkIdx = 0
+	} else if a.conflictHunkIdx >= len(cf.Hunks) {
 		a.conflictHunkIdx = len(cf.Hunks) - 1
-	} else {
-		a.conflictHunkIdx = currentIdx
 	}
 
 	a.updateHunkNav()
@@ -945,13 +986,15 @@ func (a *App) spliceResolutionBuffer(hunk *ConflictHunk, lines []string) {
 	end := -1
 	count := 0
 
+	// Try to find markers first
 	for i, line := range allLines {
-		if strings.HasPrefix(line, "<<<<<<< ") {
+		trimmed := strings.TrimRight(line, "\r")
+		if strings.HasPrefix(trimmed, "<<<<<<<") {
 			if count == a.conflictHunkIdx {
 				start = i
 			}
 		}
-		if strings.HasPrefix(line, ">>>>>>> ") {
+		if strings.HasPrefix(trimmed, ">>>>>>>") {
 			if count == a.conflictHunkIdx {
 				end = i
 				break
@@ -960,11 +1003,22 @@ func (a *App) spliceResolutionBuffer(hunk *ConflictHunk, lines []string) {
 		}
 	}
 
+	// Fallback to stored indices if markers are gone (because we already picked a resolution)
+	if start == -1 || end == -1 {
+		if a.conflictHunkIdx < len(a.conflictHunkStarts) && a.conflictHunkIdx < len(a.conflictHunkEnds) {
+			start = a.conflictHunkStarts[a.conflictHunkIdx]
+			end = a.conflictHunkEnds[a.conflictHunkIdx]
+		}
+	}
+
 	if start == -1 || end == -1 {
 		return
 	}
 
-	repl := append([]string{}, allLines[:start]...)
+	diff := len(lines) - (end - start + 1)
+	
+	repl := make([]string, 0, len(allLines)+diff)
+	repl = append(repl, allLines[:start]...)
 	repl = append(repl, lines...)
 	repl = append(repl, allLines[end+1:]...)
 
@@ -973,12 +1027,20 @@ func (a *App) spliceResolutionBuffer(hunk *ConflictHunk, lines []string) {
 	a.conflictResBuf.SetText(newText)
 	a.conflictLoading = false
 	a.saveCurrentConflictDraft()
+
+	a.conflictHunkEnds[a.conflictHunkIdx] = start + len(lines) - 1
+	for i := a.conflictHunkIdx + 1; i < len(a.conflictHunkStarts); i++ {
+		a.conflictHunkStarts[i] += diff
+		a.conflictHunkEnds[i] += diff
+	}
+
+	cf := &a.conflictFiles[a.conflictFileIdx]
+	cf.Hunks = ParseConflictHunks(newText)
 }
 
 func (a *App) acceptCurrentHunk() {
 	cf := &a.conflictFiles[a.conflictFileIdx]
 	
-	// If there are hunks, mark the current one as resolved
 	if len(cf.Hunks) > 0 && a.conflictHunkIdx < len(cf.Hunks) {
 		hunk := &cf.Hunks[a.conflictHunkIdx]
 		if hunk.Resolution == ResolutionNone {
@@ -986,14 +1048,12 @@ func (a *App) acceptCurrentHunk() {
 		}
 	}
 
-	// Check if all markers are gone (either by parsing or by manual edit)
 	text := a.conflictResBuf.Text(a.conflictResBuf.StartIter(), a.conflictResBuf.EndIter(), false)
 	remainingHunks := ParseConflictHunks(text)
 	
 	if len(remainingHunks) == 0 {
 		a.markFileResolved(a.conflictFileIdx)
 	} else {
-		// If we still have hunks, try to move to the next one
 		a.navigateHunk(1)
 	}
 }

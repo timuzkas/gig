@@ -194,14 +194,14 @@ func ParseConflictHunks(content string) []ConflictHunk {
 	for i, line := range lines {
 		line = strings.TrimRight(line, "\r")
 		switch {
-		case strings.HasPrefix(line, "<<<<<<< "):
+		case strings.HasPrefix(line, "<<<<<<<"):
 			cur = stateOurs
 			hunk = ConflictHunk{StartLine: i, Resolution: ResolutionNone}
-		case strings.HasPrefix(line, "||||||| ") && cur == stateOurs:
+		case strings.HasPrefix(line, "|||||||") && cur == stateOurs:
 			cur = stateBase
-		case strings.HasPrefix(line, "=======") && len(line) >= 7 && (cur == stateOurs || cur == stateBase):
+		case strings.HasPrefix(line, "=======") && (cur == stateOurs || cur == stateBase):
 			cur = stateTheirs
-		case strings.HasPrefix(line, ">>>>>>> ") && cur == stateTheirs:
+		case strings.HasPrefix(line, ">>>>>>>") && cur == stateTheirs:
 			hunks = append(hunks, hunk)
 			hunk = ConflictHunk{}
 			cur = stateNormal
@@ -238,13 +238,20 @@ func AbortMerge(repoPath string) error {
 }
 
 func ContinueMerge(repoPath string) error {
-	if _, err := gitCmd(repoPath, "merge", "--continue", "--no-edit"); err == nil {
+	_, err := gitCmd(repoPath, "merge", "--continue")
+	if err == nil {
 		return nil
 	}
-	if _, err := gitCmd(repoPath, "rebase", "--continue", "--no-edit"); err == nil {
+	// If it's not a merge, try rebase
+	_, err2 := gitCmd(repoPath, "rebase", "--continue")
+	if err2 == nil {
 		return nil
 	}
-	return fmt.Errorf("could not continue operation")
+	
+	if strings.Contains(err.Error(), "no merge in progress") && !strings.Contains(err2.Error(), "no rebase in progress") {
+		return err2
+	}
+	return err
 }
 
 func EnsureDiff3Style(repoPath string) {
@@ -253,6 +260,7 @@ func EnsureDiff3Style(repoPath string) {
 
 func gitCmd(repoPath string, args ...string) (string, error) {
 	cmd := exec.Command("git", append([]string{"-C", repoPath}, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_EDITOR=true")
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
