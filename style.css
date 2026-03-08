@@ -469,16 +469,15 @@ stackswitcher button {
 }
 
 /* Active/checked tab — filled accent background for clear highlight */
+stackswitcher button.checked,
 stackswitcher button:checked {
   background-color: alpha(@accent, 0.12) !important;
-  background-image: none !important;
   color: @accent !important;
   border-bottom: 2px solid @accent !important;
 }
 
-stackswitcher button:hover:not(:checked) {
+stackswitcher button:hover:not(.checked):not(:checked) {
   background-color: alpha(@accent, 0.06) !important;
-  background-image: none !important;
   color: @text !important;
 }
 
@@ -578,6 +577,8 @@ listbox row:selected *,
   color: @text_dim;
   padding: 0 16px;
   min-height: 36px;
+  border-radius: 0;
+  border-right: 1px solid @border;
 }
 .diff-toggle-btn:hover { color: @text; }
 
@@ -850,3 +851,73 @@ textview > text,
 }
 
 .diff-view-split:first-child { border-right: 1px solid @border; }
+
+.diff-file-expander {
+  margin: 0;
+  border-bottom: 1px solid @border;
+}
+
+.diff-file-expander > title {
+  padding: 8px 14px;
+  background-color: @surface;
+  min-height: 36px;
+}
+
+.diff-file-expander > title label {
+  font-family: monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: @accent;
+}
+
+.diff-file-expander:hover > title {
+  background-color: alpha(@accent, 0.05);
+}
+
+.diff-file-expander:focus-within {
+  outline: 1px solid alpha(@accent, 0.3);
+}
+
+.diff-view-container textview {
+  background-color: @bg;
+}
+
+/* ── Conflict panel panes ─────────────────────────────────────── */
+.conflict-pane {
+  border: 1px solid @border;
+  margin: 4px;
+}
+
+.conflict-pane-header {
+  padding: 4px 12px;
+  min-height: 28px;
+  border-bottom: 1px solid @border;
+}
+
+.conflict-pane-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background-color: transparent !important;
+}
+
+.conflict-ours-label        { color: @added; }
+.conflict-base-label        { color: @text_dim; }
+.conflict-theirs-label      { color: @removed; }
+.conflict-pane-label-resolution { color: @accent; }
+
+.conflict-pane-res          { border-color: alpha(@accent, 0.5); }
+
+.conflict-view,
+.conflict-res-view          { background-color: @bg; font-size: 13px; }
+.conflict-ours-view         { background-color: alpha(@added,   0.04); }
+.conflict-theirs-view       { background-color: alpha(@removed, 0.04); }
+.conflict-base-view         { background-color: alpha(@text_dim, 0.03); opacity: 0.8; }
+
+/* Conflict nav bar */
+.conflict-nav-bar {
+  background-color: @surface;
+  border-top: 1px solid @border;
+  padding: 4px 10px;
+}

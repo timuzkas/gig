@@ -75,6 +75,166 @@ type RepoState struct {
 	Behind   int
 }
 
+// ── Conflict Resolution ──────────────────────────────────────────
+
+type ConflictKind string
+
+const (
+	ConflictBothModified  ConflictKind = "UU" // most common
+	ConflictBothAdded     ConflictKind = "AA"
+	ConflictBothDeleted   ConflictKind = "DD"
+	ConflictAddedByUs     ConflictKind = "AU"
+	ConflictAddedByThem   ConflictKind = "UA"
+	ConflictDeletedByUs   ConflictKind = "DU"
+	ConflictDeletedByThem ConflictKind = "UD"
+)
+
+type ConflictFile struct {
+	Path     string
+	Kind     ConflictKind
+	Base     string
+	Ours     string
+	Theirs   string
+	Hunks    []ConflictHunk
+	Resolved bool
+}
+
+type ConflictHunk struct {
+	StartLine   int
+	OursLines   []string
+	BaseLines   []string
+	TheirsLines []string
+	Resolution  HunkResolution
+}
+
+type HunkResolution int
+
+const (
+	ResolutionNone HunkResolution = iota
+	ResolutionOurs
+	ResolutionTheirs
+	ResolutionBoth
+	ResolutionBothRev
+	ResolutionCustom
+)
+
+func IsConflicted(repoPath string) bool {
+	out, _ := gitCmd(repoPath, "status", "--porcelain=v1")
+	for _, line := range strings.Split(out, "\n") {
+		if len(line) >= 2 {
+			xy := line[:2]
+			switch xy {
+			case "DD", "AU", "UD", "UA", "DU", "AA", "UU":
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func GetConflictFiles(repoPath string) []ConflictFile {
+	out, _ := gitCmd(repoPath, "status", "--porcelain=v1")
+	var files []ConflictFile
+	for _, line := range strings.Split(out, "\n") {
+		if len(line) < 4 {
+			continue
+		}
+		xy := line[:2]
+		switch xy {
+		case "DD", "AU", "UD", "UA", "DU", "AA", "UU":
+			path := strings.TrimSpace(line[3:])
+			files = append(files, ConflictFile{
+				Path: path,
+				Kind: ConflictKind(xy),
+			})
+		}
+	}
+	return files
+}
+
+func GetFileVersions(repoPath, path string) (base, ours, theirs string) {
+	base, _ = gitCmd(repoPath, "show", ":1:"+path)
+	ours, _ = gitCmd(repoPath, "show", ":2:"+path)
+	theirs, _ = gitCmd(repoPath, "show", ":3:"+path)
+	return
+}
+
+func ParseConflictHunks(content string) []ConflictHunk {
+	var hunks []ConflictHunk
+	lines := strings.Split(content, "\n")
+
+	type state int
+	const (
+		stateNormal state = iota
+		stateOurs
+		stateBase
+		stateTheirs
+	)
+
+	cur := stateNormal
+	var hunk ConflictHunk
+	for i, line := range lines {
+		switch {
+		case strings.HasPrefix(line, "<<<<<<< "):
+			cur = stateOurs
+			hunk = ConflictHunk{StartLine: i, Resolution: ResolutionNone}
+		case strings.HasPrefix(line, "||||||| ") && cur == stateOurs:
+			cur = stateBase
+		case line == "=======" && (cur == stateOurs || cur == stateBase):
+			cur = stateTheirs
+		case strings.HasPrefix(line, ">>>>>>> ") && cur == stateTheirs:
+			hunks = append(hunks, hunk)
+			hunk = ConflictHunk{}
+			cur = stateNormal
+		default:
+			switch cur {
+			case stateOurs:
+				hunk.OursLines = append(hunk.OursLines, line)
+			case stateBase:
+				hunk.BaseLines = append(hunk.BaseLines, line)
+			case stateTheirs:
+				hunk.TheirsLines = append(hunk.TheirsLines, line)
+			}
+		}
+	}
+	return hunks
+}
+
+func MarkResolved(repoPath, path string) error {
+	_, err := gitCmd(repoPath, "add", "--", path)
+	return err
+}
+
+func AbortMerge(repoPath string) error {
+	// Try merge abort first, then rebase abort, etc.
+	if _, err := gitCmd(repoPath, "merge", "--abort"); err == nil {
+		return nil
+	}
+	if _, err := gitCmd(repoPath, "rebase", "--abort"); err == nil {
+		return nil
+	}
+	if _, err := gitCmd(repoPath, "cherry-pick", "--abort"); err == nil {
+		return nil
+	}
+	return fmt.Errorf("could not abort operation")
+}
+
+func ContinueMerge(repoPath string) error {
+	// Try merge continue, then rebase continue
+	if _, err := gitCmd(repoPath, "merge", "--continue", "--no-edit"); err == nil {
+		return nil
+	}
+	if _, err := gitCmd(repoPath, "rebase", "--continue", "--no-edit"); err == nil {
+		return nil
+	}
+	// Note: cherry-pick continue might need different handling
+	return fmt.Errorf("could not continue operation")
+}
+
+func EnsureDiff3Style(repoPath string) {
+	_, _ = gitCmd(repoPath, "config", "merge.conflictstyle", "diff3")
+}
+
 func gitCmd(repoPath string, args ...string) (string, error) {
 	cmd := exec.Command("git", append([]string{"-C", repoPath}, args...)...)
 	var stdout bytes.Buffer
