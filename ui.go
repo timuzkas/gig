@@ -141,6 +141,7 @@ func (a *App) build() {
 
 	a.win = gtk.NewApplicationWindow(a.app)
 	a.win.SetTitle("gig")
+	a.win.AddCSSClass("main-window")
 	a.win.SetDefaultSize(1440, 900)
 	a.win.SetResizable(true)
 
@@ -177,6 +178,9 @@ func (a *App) build() {
 }
 
 func (a *App) loadCSS() {
+	fmt.Println("=== LOADING CSS, length:", len(defaultCSS))
+	fmt.Println("=== FIRST 100 CHARS:", defaultCSS[:100])
+
 	display := gdk.DisplayGetDefault()
 	if display == nil {
 		return
@@ -197,6 +201,8 @@ func (a *App) loadCSS() {
 @define-color selection %s;
 
 * { font-family: "%s"; font-size: %dpt; }
+
+window { background-color: @bg; }
 `,
 		a.cfg.Colors.Bg, a.cfg.Colors.Surface, a.cfg.Colors.Surface2,
 		a.cfg.Colors.Border, a.cfg.Colors.Text, a.cfg.Colors.TextDim,
@@ -209,7 +215,7 @@ func (a *App) loadCSS() {
 	cssVars += defaultCSS
 
 	provider.LoadFromData(cssVars)
-	gtk.StyleContextAddProviderForDisplay(display, provider, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+	gtk.StyleContextAddProviderForDisplay(display, provider, gtk.STYLE_PROVIDER_PRIORITY_USER)
 }
 
 // ── In-app overlay ────────────────────────────────────────────────

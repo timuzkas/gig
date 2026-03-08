@@ -7,91 +7,143 @@
   border-radius: 0;
   outline: none;
   box-shadow: none;
-  -gtk-outline-radius: 0;
   transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 
 window,
 window > *,
+.main-window,
+.content-panel,
+.repo-sidebar,
+.file-sidebar {
+  background-color: @bg;
+  color: @text;
+}
+
 box,
 paned,
 stack,
-stackpage > *,
-scrolledwindow,
-scrolledwindow > * {
-  background-color: @bg;
+scrolledwindow {
+  background-color: transparent;
   color: @text;
+}
+
+viewport,
+list,
+listbox {
+  background-color: @bg;
 }
 
 /* ═══════════════════════════════════════════════════════════════
    HEADERBAR
    ═══════════════════════════════════════════════════════════════ */
+
+.csd headerbar,
+.csd .titlebar,
 headerbar,
-headerbar > *,
 .titlebar,
-.titlebar > * {
-  background-color: @bg !important;
-  background-image: none !important;
-  box-shadow: none !important;
+headerbar *,
+.titlebar *,
+headerbar:backdrop,
+.titlebar:backdrop,
+headerbar:backdrop *,
+.titlebar:backdrop * {
+  background-color: @bg;
+  background-image: none;
+  background: @bg;
+  box-shadow: none;
+  color: @text;
+  transition: none;
 }
 
 headerbar {
-  border-bottom: 1px solid @border !important;
-  padding: 0 6px !important;
-  min-height: 42px !important;
+  border-bottom: 1px solid @border;
+  padding: 0 10px;
+  min-height: 42px;
 }
 
-headerbar:backdrop,
-.titlebar:backdrop,
-headerbar:backdrop > *,
-.titlebar:backdrop > * {
-  background-color: @bg !important;
-  background-image: none !important;
-  box-shadow: none !important;
+windowcontrols {
+  margin-left: 10px;
+  margin-right: 10px;
 }
 
-/* ── Window close button ──────────────────────────────────────── */
-windowcontrols,
-windowcontrols > * {
-  background-color: transparent !important;
-  background-image: none !important;
-  box-shadow: none !important;
-  /* Remove the left gray separator line GTK adds */
-  border: none !important;
-  padding: 0 !important;
-  margin: 0 !important;
+
+
+headerbar windowcontrols button.close,
+headerbar windowcontrols button.titlebutton.close,
+.titlebar windowcontrols button.close,
+.titlebar windowcontrols button.titlebutton.close {
+  background: transparent;
+  background-image: none;
+  border: none;
+  box-shadow: none;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  margin: 0 0 0 6px;
+  border-radius: 4px;
+  color: @text_dim;
 }
 
-windowcontrols button {
-  background-color: @bg !important;
-  background-image: none !important;
-  border: 1px solid @border !important;
-  border-radius: 4px !important;
-  box-shadow: none !important;
-  /* Force exact square matching other buttons */
-  min-width: 28px !important;
-  max-width: 28px !important;
-  min-height: 28px !important;
-  max-height: 28px !important;
-  padding: 0 !important;
-  margin: 0 0 0 4px !important;
-  color: @text_dim !important;
+headerbar windowcontrols button.close,
+headerbar windowcontrols button.close:hover,
+headerbar windowcontrols button.close:active,
+headerbar windowcontrols button.titlebutton.close,
+headerbar windowcontrols button.titlebutton.close:hover,
+headerbar windowcontrols button.titlebutton.close:active,
+.titlebar windowcontrols button.close,
+.titlebar windowcontrols button.close:hover,
+.titlebar windowcontrols button.close:active,
+.titlebar windowcontrols button.titlebutton.close,
+.titlebar windowcontrols button.titlebutton.close:hover,
+.titlebar windowcontrols button.titlebutton.close:active {
+  min-width: 28px;
+  min-height: 28px;
+  max-width: 28px;
+  max-height: 28px;
 }
 
-windowcontrols button:hover {
-  background-color: alpha(@removed, 0.22) !important;
-  background-image: none !important;
-  border-color: alpha(@removed, 0.7) !important;
-  color: @removed !important;
+headerbar windowcontrols button.close image,
+headerbar windowcontrols button.titlebutton.close image,
+headerbar windowcontrols button.close label,
+headerbar windowcontrols button.titlebutton.close label,
+.titlebar windowcontrols button.close image,
+.titlebar windowcontrols button.titlebutton.close image,
+.titlebar windowcontrols button.close label,
+.titlebar windowcontrols button.titlebutton.close label {
+  background-color: transparent;
+  color: inherit;
 }
 
-windowcontrols button image,
-windowcontrols button label {
-  background-color: transparent !important;
-  color: inherit !important;
-  min-width: 0 !important;
-  min-height: 0 !important;
-  padding: 0 !important;
+headerbar windowcontrols button.close:hover,
+headerbar windowcontrols button.titlebutton.close:hover,
+.titlebar windowcontrols button.close:hover,
+.titlebar windowcontrols button.titlebutton.close:hover {
+  background: alpha(@removed, 0.22);
+  background-image: none;
+  border: none;
+  color: @removed;
+}
+
+headerbar windowcontrols button.close:hover image,
+headerbar windowcontrols button.titlebutton.close:hover image,
+headerbar windowcontrols button.close:hover label,
+headerbar windowcontrols button.titlebutton.close:hover label,
+.titlebar windowcontrols button.close:hover image,
+.titlebar windowcontrols button.titlebutton.close:hover image,
+.titlebar windowcontrols button.close:hover label,
+.titlebar windowcontrols button.titlebutton.close:hover label {
+  color: @removed;
+}
+
+headerbar windowcontrols button.close:active,
+headerbar windowcontrols button.titlebutton.close:active,
+.titlebar windowcontrols button.close:active,
+.titlebar windowcontrols button.titlebutton.close:active {
+  background: alpha(@removed, 0.30);
+  background-image: none;
+  border: none;
+  color: @removed;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -132,66 +184,66 @@ button:active {
 /* Headerbar buttons */
 headerbar button,
 .titlebar button {
-  background-color: @bg !important;
-  background-image: none !important;
-  color: @text !important;
-  border: 1px solid @border !important;
-  box-shadow: none !important;
-  min-height: 28px !important;
-  padding: 0 10px !important;
+  background-color: @bg;
+  background-image: none;
+  color: @text;
+  border: 1px solid @border;
+  box-shadow: none;
+  min-height: 28px;
+  padding: 0 10px;
 }
 
 headerbar button label,
 .titlebar button label {
-  background-color: transparent !important;
-  color: inherit !important;
+  background-color: transparent;
+  color: inherit;
 }
 
 headerbar button:hover,
 .titlebar button:hover {
-  background-color: alpha(@accent, 0.12) !important;
-  background-image: none !important;
-  border-color: alpha(@accent, 0.55) !important;
-  color: @accent !important;
+  background-color: alpha(@accent, 0.12);
+  background-image: none;
+  border-color: alpha(@accent, 0.55);
+  color: @accent;
 }
 
 headerbar button:active,
 .titlebar button:active {
-  background-color: alpha(@accent, 0.20) !important;
-  background-image: none !important;
+  background-color: alpha(@accent, 0.20);
+  background-image: none;
 }
 
 /* HEAD jump button — subtle warning tone */
 button.head-jump-btn {
-  background-color: alpha(@modified, 0.10) !important;
-  background-image: none !important;
-  color: @modified !important;
-  border: 1px solid alpha(@modified, 0.35) !important;
-  font-family: monospace !important;
-  font-size: 12px !important;
-  font-weight: 700 !important;
-  padding: 0 8px !important;
-  min-height: 28px !important;
+  background-color: alpha(@modified, 0.10);
+  background-image: none;
+  color: @modified;
+  border: 1px solid alpha(@modified, 0.35);
+  font-family: monospace;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 0 8px;
+  min-height: 28px;
 }
 
 button.head-jump-btn:hover {
-  background-color: alpha(@modified, 0.20) !important;
-  border-color: @modified !important;
-  color: @modified !important;
+  background-color: alpha(@modified, 0.20);
+  border-color: @modified;
+  color: @modified;
 }
 
 /* Flat */
 button.flat {
-  background-color: transparent !important;
-  background-image: none !important;
-  border-color: transparent !important;
+  background-color: transparent;
+  background-image: none;
+  border-color: transparent;
   color: @text_dim;
 }
 
 button.flat:hover {
-  background-color: alpha(@accent, 0.10) !important;
-  background-image: none !important;
-  border-color: transparent !important;
+  background-color: alpha(@accent, 0.10);
+  background-image: none;
+  border-color: transparent;
   color: @accent;
 }
 
@@ -200,26 +252,26 @@ button.suggested-action,
 button.suggested-action:hover,
 button.suggested-action:active,
 button.suggested-action:backdrop {
-  background: @accent !important;
-  background-image: none !important;
-  color: @bg !important;
-  border: 1px solid @accent !important;
-  box-shadow: none !important;
+  background: @accent;
+  background-image: none;
+  color: @bg;
+  border: 1px solid @accent;
+  box-shadow: none;
 }
 button.suggested-action:hover  { filter: brightness(1.10); }
 button.suggested-action:active { filter: brightness(0.90); }
 button.suggested-action:disabled {
-  background: alpha(@accent, 0.20) !important;
-  color: alpha(@bg, 0.50) !important;
-  border-color: transparent !important;
+  background: alpha(@accent, 0.20);
+  color: alpha(@bg, 0.50);
+  border-color: transparent;
 }
 
 button.commit-button-custom {
-  background: @accent !important;
-  background-image: none !important;
-  color: @bg !important;
-  border: 1px solid @accent !important;
-  box-shadow: none !important;
+  background: @accent;
+  background-image: none;
+  color: @bg;
+  border: 1px solid @accent;
+  box-shadow: none;
   border-radius: 4px;
   font-weight: 700;
   min-height: 32px;
@@ -241,42 +293,39 @@ button.destructive-action:hover {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   BRANCH DROPDOWN — kill the left separator line
+   BRANCH DROPDOWN
    ═══════════════════════════════════════════════════════════════ */
 dropdown {
-  background-color: @bg !important;
-  background-image: none !important;
-  color: @text !important;
-  border: 1px solid @border !important;
-  border-radius: 4px !important;
-  box-shadow: none !important;
-  min-height: 28px !important;
+  background-color: @bg;
+  background-image: none;
+  color: @text;
+  border: 1px solid @border;
+  border-radius: 4px;
+  box-shadow: none;
+  min-height: 28px;
   min-width: 100px;
-  max-width: 150px;
-  padding: 0 8px !important;
+  padding: 0 8px;
   font-size: 13px;
   font-weight: 600;
-  /* Remove the left gray separator GTK adds before dropdown */
-  margin-left: 0 !important;
+  margin-left: 0;
 }
 
 dropdown:hover {
-  background-color: alpha(@accent, 0.12) !important;
-  background-image: none !important;
-  border-color: alpha(@accent, 0.55) !important;
-  color: @accent !important;
+  background-color: alpha(@accent, 0.12);
+  background-image: none;
+  border-color: alpha(@accent, 0.55);
+  color: @accent;
 }
 
-/* The separator line GTK inserts before dropdown in headerbar */
 headerbar separator,
 .titlebar separator {
-  background-color: transparent !important;
-  background-image: none !important;
-  border: none !important;
-  min-width: 0 !important;
-  min-height: 0 !important;
-  margin: 0 !important;
-  padding: 0 !important;
+  background-color: transparent;
+  background-image: none;
+  border: none;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
   opacity: 0;
 }
 
@@ -284,13 +333,13 @@ dropdown > button,
 dropdown button,
 dropdown > button:hover,
 dropdown button:hover {
-  background-color: transparent !important;
-  background-image: none !important;
-  border: none !important;
-  box-shadow: none !important;
-  color: inherit !important;
-  min-height: 0 !important;
-  padding: 0 !important;
+  background-color: transparent;
+  background-image: none;
+  border: none;
+  box-shadow: none;
+  color: inherit;
+  min-height: 0;
+  padding: 0;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -328,82 +377,114 @@ searchentry > image {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   POPOVERS / CONTEXT MENUS — solid opaque background
+   POPOVERS / CONTEXT MENUS
    ═══════════════════════════════════════════════════════════════ */
-popover {
-  background-color: @surface !important;
-  background-image: none !important;
-  border: 1px solid @border !important;
-  border-radius: 6px !important;
-  padding: 0 !important;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.55) !important;
-  color: @text !important;
+
+/*
+ * GTK4 popover node tree:
+ *   popover.background > contents > [your child widget]
+ *                      > arrow
+ * The `contents` node is what holds the actual child and sets bg.
+ * We must target both the popover AND contents node explicitly.
+ */
+
+popover.background,
+popover.background:hover,
+popover.background:focus,
+popover.background:focus-within,
+popover.background:active,
+popover.background:checked,
+popover.background:backdrop {
+  background-color: transparent;
+  background-image: none;
+  padding: 0;
 }
 
-/* GTK wraps popover content in a 'contents' node */
-popover > contents {
-  background-color: @surface !important;
-  background-image: none !important;
-  border-radius: 6px !important;
-  padding: 4px !important;
+popover.background > contents,
+popover.background:hover > contents,
+popover.background:focus > contents,
+popover.background:focus-within > contents,
+popover.background:active > contents,
+popover.background:checked > contents,
+popover.background:backdrop > contents,
+popover.background > contents:hover {
+  background-color: @surface;
+  background-image: none;
+  color: @text;
+  border: 1px solid @border;
+  border-radius: 6px;
+  padding: 4px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.85);
 }
 
-popover > contents > box,
-popover > box {
-  background-color: @surface !important;
-  background-image: none !important;
-  border-radius: 6px !important;
-  padding: 4px !important;
+popover.background > arrow,
+popover.background:hover > arrow,
+popover.background:focus > arrow,
+popover.background:focus-within > arrow,
+popover.background:active > arrow,
+popover.background:checked > arrow,
+popover.background:backdrop > arrow,
+popover.background > arrow:hover {
+  background-color: @surface;
+  background-image: none;
+  border-color: @border;
 }
 
-popover row,
-popover modelbutton {
+popover.background > contents box,
+popover.background > contents list,
+popover.background > contents listbox,
+popover.background > contents listview,
+popover.background > contents stack,
+popover.background > contents viewport,
+popover.background > contents scrolledwindow {
+  background-color: @surface;
+  background-image: none;
+  color: @text;
+}
+
+popover.background > contents button,
+popover.background > contents button.flat {
+  background-color: transparent;
+  background-image: none;
+  border: none;
+  border-radius: 3px;
+  box-shadow: none;
+  color: @text;
+  min-height: 30px;
+  padding: 0 10px;
+}
+
+popover.background > contents button:hover,
+popover.background > contents button.flat:hover {
+  background-color: alpha(@accent, 0.14);
+  color: @accent;
+}
+
+popover.background > contents button.destructive-action {
+  color: @removed;
+}
+
+popover.background > contents button.destructive-action:hover {
+  background-color: alpha(@removed, 0.12);
+  color: @removed;
+}
+
+popover.background > contents listview row,
+popover.background > contents listbox row {
   background-color: transparent;
   color: @text;
-  border-radius: 3px;
-  min-height: 28px;
-  padding: 0 8px;
 }
 
-popover row:hover,
-popover modelbutton:hover {
+popover.background > contents listview row:hover,
+popover.background > contents listbox row:hover {
   background-color: alpha(@accent, 0.12);
   color: @accent;
 }
 
-/* All buttons inside popovers (context menus) */
-popover button,
-popover button.flat {
-  background-color: transparent !important;
-  background-image: none !important;
-  border: none !important;
-  border-radius: 3px !important;
-  box-shadow: none !important;
-  color: @text !important;
-  min-height: 30px !important;
-  padding: 0 10px !important;
-  text-align: left;
-}
-
-popover button:hover,
-popover button.flat:hover {
-  background-color: alpha(@accent, 0.12) !important;
-  color: @accent !important;
-}
-
-popover button.destructive-action {
-  color: @removed !important;
-}
-
-popover button.destructive-action:hover {
-  background-color: alpha(@removed, 0.12) !important;
-  color: @removed !important;
-}
-
-/* Arrow on popover */
-popover > arrow {
-  background-color: @surface !important;
-  border-color: @border !important;
+popover.background > contents listview row:selected,
+popover.background > contents listbox row:selected {
+  background-color: alpha(@accent, 0.18);
+  color: @accent;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -441,50 +522,53 @@ paned > separator {
 paned > separator:hover { background-color: alpha(@accent, 0.4); }
 
 /* ═══════════════════════════════════════════════════════════════
-   STACK SWITCHER (tabs) — highlight selected tab
+   STACK SWITCHER (tabs)
    ═══════════════════════════════════════════════════════════════ */
+
 stackswitcher,
 stackswitcher > * {
-  background-color: @bg !important;
-  background-image: none !important;
-  border-bottom: 1px solid @border !important;
-  padding: 0 !important;
-  box-shadow: none !important;
+  background-color: @bg;
+  background-image: none;
+  border-bottom: 1px solid @border;
+  padding: 0;
+  box-shadow: none;
 }
 
 stackswitcher button {
-  background-color: @bg !important;
-  background-image: none !important;
-  border: none !important;
-  border-bottom: 2px solid transparent !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-  min-height: 34px !important;
-  padding: 0 20px !important;
-  color: @text_dim !important;
-  font-size: 12px !important;
-  font-weight: 700 !important;
+  background-color: @bg;
+  background-image: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  box-shadow: none;
+  min-height: 34px;
+  padding: 0 20px;
+  color: @text_dim;
+  font-size: 12px;
+  font-weight: 700;
   letter-spacing: 0.09em;
   text-transform: uppercase;
 }
 
-/* Active/checked tab — filled accent background for clear highlight */
 stackswitcher button.checked,
 stackswitcher button:checked {
-  background-color: alpha(@accent, 0.12) !important;
-  color: @accent !important;
-  border-bottom: 2px solid @accent !important;
+  background-color: alpha(@accent, 0.12);
+  background-image: none;
+  color: @accent;
+  border-bottom: 2px solid @accent;
+  border-radius: 0;
 }
 
 stackswitcher button:hover:not(.checked):not(:checked) {
-  background-color: alpha(@accent, 0.06) !important;
-  color: @text !important;
+  background-color: alpha(@accent, 0.06);
+  background-image: none;
+  color: @text;
 }
 
 stackswitcher button label {
-  color: inherit !important;
-  background-color: transparent !important;
-  font-size: inherit !important;
+  color: inherit;
+  background-color: transparent;
+  font-size: inherit;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -549,8 +633,8 @@ listbox row:selected *,
 
 .content-panel stackswitcher,
 .content-panel stackswitcher > * {
-  background-color: @bg !important;
-  background-image: none !important;
+  background-color: @bg;
+  background-image: none;
 }
 
 .top-info-bar {
@@ -582,7 +666,6 @@ listbox row:selected *,
 }
 .diff-toggle-btn:hover { color: @text; }
 
-/* ── "No changes to display" empty state ─────────────────────── */
 .diff-empty-state {
   color: @text_dim;
   font-size: 13px;
@@ -602,7 +685,7 @@ listbox row:selected *,
 .status-strip *,
 .status-strip box,
 .status-strip label {
-  background-color: transparent !important;
+  background-color: transparent;
   color: @text_dim;
 }
 
@@ -649,18 +732,17 @@ row.section-header:hover { background-color: transparent; }
   padding: 0 6px;
 }
 
-/* ── Ignored files expander — muted, less prominent ──────────── */
 .ignored-expander,
 .ignored-expander > title,
 .ignored-expander > title label {
-  color: alpha(@text_dim, 0.45) !important;
-  font-size: 11px !important;
-  background-color: transparent !important;
+  color: alpha(@text_dim, 0.45);
+  font-size: 11px;
+  background-color: transparent;
 }
 
 .ignored-expander > title:hover,
 .ignored-expander > title:hover label {
-  color: @text_dim !important;
+  color: @text_dim;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -709,7 +791,6 @@ row.section-header:hover { background-color: transparent; }
 .repo-path    { color: @text_dim; font-size: 11px;                   background-color: transparent; }
 .commit-hash  { color: @accent;   font-family: monospace; font-size: 12px; background-color: transparent; }
 .commit-meta  { color: @text_dim; font-size: 11px;                        background-color: transparent; }
-.commit-graph { color: @text_dim; font-family: monospace; font-size: 12px; white-space: pre; opacity: 0.45; background-color: transparent; }
 .dim          { color: @text_dim; background-color: transparent; }
 .empty        { color: @text_dim; font-size: 13px; letter-spacing: 0.06em; opacity: 0.50; }
 
@@ -790,11 +871,11 @@ row.section-header:hover { background-color: transparent; }
 }
 
 .overlay-close-btn {
-  font-size: 16px !important;
-  font-weight: 700 !important;
-  min-width: 32px !important;
-  min-height: 32px !important;
-  padding: 0 !important;
+  font-size: 16px;
+  font-weight: 700;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
 }
 
 .overlay-panel scrolledwindow,
@@ -899,7 +980,7 @@ textview > text,
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  background-color: transparent !important;
+  background-color: transparent;
 }
 
 .conflict-ours-label        { color: @added; }
@@ -915,7 +996,6 @@ textview > text,
 .conflict-theirs-view       { background-color: alpha(@removed, 0.04); }
 .conflict-base-view         { background-color: alpha(@text_dim, 0.03); opacity: 0.8; }
 
-/* Conflict nav bar */
 .conflict-nav-bar {
   background-color: @surface;
   border-top: 1px solid @border;
