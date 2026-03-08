@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -153,6 +154,17 @@ func (a *App) build() {
 	root.Append(a.buildStatusStrip())
 
 	a.win.SetChild(root)
+
+	keyController := gtk.NewEventControllerKey()
+	keyController.ConnectKeyPressed(func(keyval uint, _ uint, state gdk.ModifierType) bool {
+		if (state&gdk.ControlMask != 0) && keyval == uint(gdk.KEY_O) {
+			a.openPathDialog()
+			return true
+		}
+		return false
+	})
+	a.win.AddController(keyController)
+
 	a.win.Present()
 
 	if len(a.repos) > 0 {
@@ -3113,6 +3125,53 @@ func (a *App) openNewBranchDialog() {
 
 	card := a.buildOverlayCard("New Branch", 420, content)
 	a.showOverlay(card)
+}
+
+func (a *App) openPathDialog() {
+	a.promptDialog("Open Directory", "/path/to/repos", "", func(val string) {
+		if val == "" {
+			return
+		}
+		path := filepath.Clean(val)
+		if strings.HasPrefix(path, "~") {
+			home, _ := os.UserHomeDir()
+			path = filepath.Join(home, path[1:])
+		}
+
+		newRepos := DiscoverRepos([]string{path}, true)
+		if len(newRepos) == 0 {
+			a.setInfoErr("No git repositories found in " + path)
+			return
+		}
+
+		seen := make(map[string]bool)
+		for _, r := range a.repos {
+			seen[r.Path] = true
+		}
+
+		addedCount := 0
+		for _, r := range newRepos {
+			if !seen[r.Path] {
+				a.repos = append(a.repos, r)
+				seen[r.Path] = true
+				addedCount++
+			}
+		}
+
+		if addedCount > 0 {
+			sort.Slice(a.repos, func(i, j int) bool {
+				return strings.ToLower(a.repos[i].Name) < strings.ToLower(a.repos[j].Name)
+			})
+			a.populateRepos()
+			a.setInfoOk(fmt.Sprintf("Added %d repositories", addedCount))
+			
+			// Select the first one from the newly added if possible
+			a.selectRepo(newRepos[0].Path)
+		} else {
+			a.setInfoOk("Repositories already in list")
+			a.selectRepo(newRepos[0].Path)
+		}
+	})
 }
 
 func (a *App) updateHeaderInfo() {
