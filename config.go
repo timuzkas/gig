@@ -13,6 +13,24 @@ type Config struct {
 	Behavior   BehaviorConfig   `toml:"behavior"`
 	Features   FeaturesConfig   `toml:"features"`
 	Repos      ReposConfig      `toml:"repos"`
+	Hotkeys    HotkeysConfig    `toml:"hotkeys"`
+}
+
+type HotkeysConfig struct {
+	Refresh      string `toml:"refresh"`
+	Commit       string `toml:"commit"`
+	Fetch        string `toml:"fetch"`
+	Pull         string `toml:"pull"`
+	Push         string `toml:"push"`
+	Branch       string `toml:"branch"`
+	Panel1       string `toml:"panel_1"`
+	Panel2       string `toml:"panel_2"`
+	Panel3       string `toml:"panel_3"`
+	PrevCommit   string `toml:"prev_commit"`
+	NextCommit   string `toml:"next_commit"`
+	ToggleSplit  string `toml:"toggle_split"`
+	Search       string `toml:"search"`
+	OpenDir      string `toml:"open_dir"`
 }
 
 type AppearanceConfig struct {
@@ -98,6 +116,22 @@ func DefaultConfig() Config {
 		},
 		Repos: ReposConfig{
 			Paths: []string{"."},
+		},
+		Hotkeys: HotkeysConfig{
+			Refresh:     "<Control>r",
+			Commit:      "<Control>Return",
+			Fetch:       "<Control>f",
+			Pull:        "<Control>l",
+			Push:        "<Control>p",
+			Branch:      "<Control>b",
+			Panel1:      "<Control>1",
+			Panel2:      "<Control>2",
+			Panel3:      "<Control>3",
+			PrevCommit:  "<Control>bracketleft",
+			NextCommit:  "<Control>bracketright",
+			ToggleSplit: "<Control>t",
+			Search:      "slash",
+			OpenDir:     "<Control>o",
 		},
 	}
 }

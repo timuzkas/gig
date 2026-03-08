@@ -154,18 +154,7 @@ func (a *App) build() {
 	root.Append(a.buildStatusStrip())
 
 	a.win.SetChild(root)
-
-	keyController := gtk.NewEventControllerKey()
-	keyController.SetPropagationPhase(gtk.PhaseCapture)
-	keyController.ConnectKeyPressed(func(keyval uint, _ uint, state gdk.ModifierType) bool {
-		if (state&gdk.ControlMask != 0) && keyval == uint(gdk.KEY_O) {
-			a.openPathDialog()
-			return true
-		}
-		return false
-	})
-	a.win.AddController(keyController)
-
+	a.setupHotkeys()
 	a.win.Present()
 
 	if len(a.repos) > 0 {
@@ -1098,18 +1087,18 @@ func (a *App) buildHeader() *gtk.HeaderBar {
 	left.Append(a.headJumpBtn)
 
 	for _, def := range []struct {
-		label, tooltip string
-		fn             func()
+		label, tooltip, accel string
+		fn                    func()
 	}{
-		{"↓ Fetch", "Fetch all remotes", func() { a.runGitOp("Fetching…", "Fetch complete", Fetch) }},
-		{"⇓ Pull", "Pull current branch", func() { a.runGitOpSafe("Pulling…", "Pull complete", Pull) }},
-		{"⇑ Push", "Push current branch", func() { a.runGitOp("Pushing…", "Push complete", Push) }},
-		{"⊟ Stash", "Manage stashes", func() { a.openStashPanel() }},
-		{"⚙ Remotes", "Manage remotes", func() { a.openRepoConfigPanel() }},
+		{"↓ Fetch", "Fetch all remotes", a.cfg.Hotkeys.Fetch, func() { a.runGitOp("Fetching…", "Fetch complete", Fetch) }},
+		{"⇓ Pull", "Pull current branch", a.cfg.Hotkeys.Pull, func() { a.runGitOpSafe("Pulling…", "Pull complete", Pull) }},
+		{"⇑ Push", "Push current branch", a.cfg.Hotkeys.Push, func() { a.runGitOp("Pushing…", "Push complete", Push) }},
+		{"⊟ Stash", "Manage stashes", "", func() { a.openStashPanel() }},
+		{"⚙ Remotes", "Manage remotes", "", func() { a.openRepoConfigPanel() }},
 	} {
 		def := def
 		btn := gtk.NewButtonWithLabel(def.label)
-		btn.SetTooltipText(def.tooltip)
+		btn.SetTooltipText(def.tooltip + a.formatAccel(def.accel))
 		btn.ConnectClicked(def.fn)
 		left.Append(btn)
 	}
@@ -1120,12 +1109,13 @@ func (a *App) buildHeader() *gtk.HeaderBar {
 
 	a.searchEntry = gtk.NewSearchEntry()
 	a.searchEntry.SetPlaceholderText("Search commits…")
+	a.searchEntry.SetTooltipText("Search commits" + a.formatAccel(a.cfg.Hotkeys.Search))
 	a.searchEntry.SetWidthChars(24)
 	a.searchEntry.ConnectSearchChanged(func() { a.populateCommits() })
 	right.Append(a.searchEntry)
 
 	refreshBtn := gtk.NewButtonWithLabel("↺")
-	refreshBtn.SetTooltipText("Refresh")
+	refreshBtn.SetTooltipText("Refresh" + a.formatAccel(a.cfg.Hotkeys.Refresh))
 	refreshBtn.ConnectClicked(func() { a.doReload(true) })
 	right.Append(refreshBtn)
 
@@ -1257,13 +1247,28 @@ func (a *App) buildBody() *gtk.Paned {
 	return outer
 }
 
+func (a *App) formatAccel(accel string) string {
+	if accel == "" {
+		return ""
+	}
+	s := accel
+	s = strings.ReplaceAll(s, "<Control>", "Ctrl+")
+	s = strings.ReplaceAll(s, "<Shift>", "Shift+")
+	s = strings.ReplaceAll(s, "<Alt>", "Alt+")
+	s = strings.ReplaceAll(s, "Return", "Enter")
+	s = strings.ReplaceAll(s, "bracketleft", "[")
+	s = strings.ReplaceAll(s, "bracketright", "]")
+	s = strings.ReplaceAll(s, "slash", "/")
+	return " (" + s + ")"
+}
+
 func (a *App) buildRepoSidebar() *gtk.Box {
 	box := gtk.NewBox(gtk.OrientationVertical, 0)
 	box.AddCSSClass("repo-sidebar")
 
 	addBtn := gtk.NewButtonWithLabel("+")
 	addBtn.AddCSSClass("sidebar-add-btn")
-	addBtn.SetTooltipText("Open directory (Ctrl+O)")
+	addBtn.SetTooltipText("Open directory" + a.formatAccel(a.cfg.Hotkeys.OpenDir))
 	addBtn.ConnectClicked(func() { a.openPathDialog() })
 
 	hdr := a.makeSidebarHeader("Repositories", addBtn)
@@ -1299,7 +1304,7 @@ func (a *App) buildFileSidebar() *gtk.Box {
 		}(a.state.Path)
 	})
 
-	hdr := a.makeSidebarHeader("Changes", stageAllBtn)
+	hdr := a.makeSidebarHeader("Changes"+a.formatAccel(a.cfg.Hotkeys.Panel1), stageAllBtn)
 	box.Append(hdr)
 
 	a.remoteLabel = gtk.NewLabel("")
@@ -1421,6 +1426,7 @@ func (a *App) buildLogAndDiff() *gtk.Paned {
 	a.splitToggleBtn.AddCSSClass("flat")
 	a.splitToggleBtn.AddCSSClass("diff-toggle-btn")
 	a.splitToggleBtn.SetHAlign(gtk.AlignStart)
+	a.splitToggleBtn.SetTooltipText("Toggle between split and unified view" + a.formatAccel(a.cfg.Hotkeys.ToggleSplit))
 	a.splitToggleBtn.ConnectClicked(func() {
 		a.showSplit = !a.showSplit
 		if a.showSplit {
@@ -1566,6 +1572,7 @@ func (a *App) buildBranchesView() *gtk.Box {
 
 	a.branchSearch = gtk.NewSearchEntry()
 	a.branchSearch.SetPlaceholderText("Filter branches…")
+	a.branchSearch.SetTooltipText("Filter branches" + a.formatAccel(a.cfg.Hotkeys.Branch))
 	a.branchSearch.SetHExpand(true)
 	a.branchSearch.ConnectSearchChanged(func() { a.populateBranches() })
 	toolbar.Append(a.branchSearch)
@@ -1595,6 +1602,7 @@ func (a *App) buildCommitStrip() *gtk.Box {
 	a.commitButton = gtk.NewButtonWithLabel("Commit")
 	a.commitButton.AddCSSClass("commit-button-custom")
 	a.commitButton.SetSensitive(false)
+	a.commitButton.SetTooltipText("Commit staged changes" + a.formatAccel(a.cfg.Hotkeys.Commit))
 	a.commitButton.ConnectClicked(func() {
 		if a.state == nil {
 			return
@@ -3178,6 +3186,176 @@ func (a *App) openPathDialog() {
 			a.selectRepo(newRepos[0].Path)
 		}
 	})
+}
+
+func (a *App) navigateCommitHistory(delta int) {
+	if a.commitListBox == nil {
+		return
+	}
+	sel := a.commitListBox.SelectedRow()
+	idx := 0
+	if sel != nil {
+		idx = sel.Index()
+	}
+
+	newIdx := idx + delta
+	if newIdx < 0 {
+		newIdx = 0
+	}
+	
+	row := a.commitListBox.RowAtIndex(newIdx)
+	if row != nil {
+		a.commitListBox.SelectRow(row)
+		row.GrabFocus()
+	}
+}
+
+func parseAccel(accel string) (uint, gdk.ModifierType) {
+	var mods gdk.ModifierType
+	if strings.Contains(accel, "<Control>") {
+		mods |= gdk.ControlMask
+	}
+	if strings.Contains(accel, "<Shift>") {
+		mods |= gdk.ShiftMask
+	}
+	if strings.Contains(accel, "<Alt>") {
+		mods |= gdk.AltMask
+	}
+
+	parts := strings.Split(accel, ">")
+	keyName := parts[len(parts)-1]
+	
+	var keyval uint
+	switch strings.ToLower(keyName) {
+	case "return", "enter":
+		keyval = uint(gdk.KEY_Return)
+	case "slash":
+		keyval = uint(gdk.KEY_slash)
+	case "bracketleft":
+		keyval = uint(gdk.KEY_bracketleft)
+	case "bracketright":
+		keyval = uint(gdk.KEY_bracketright)
+	case "escape":
+		keyval = uint(gdk.KEY_Escape)
+	default:
+		if len(keyName) == 1 {
+			char := keyName[0]
+			if char >= 'a' && char <= 'z' {
+				keyval = uint(gdk.KEY_a + (char - 'a'))
+			} else if char >= 'A' && char <= 'Z' {
+				keyval = uint(gdk.KEY_A + (char - 'A'))
+			} else if char >= '0' && char <= '9' {
+				keyval = uint(gdk.KEY_0 + (char - '0'))
+			}
+		}
+	}
+	return keyval, mods
+}
+
+func (a *App) setupHotkeys() {
+	keyController := gtk.NewEventControllerKey()
+	keyController.SetPropagationPhase(gtk.PhaseCapture)
+	keyController.ConnectKeyPressed(func(keyval uint, _ uint, state gdk.ModifierType) bool {
+		if keyval == uint(gdk.KEY_Escape) {
+			a.hideOverlay()
+			return true
+		}
+
+		match := func(accel string) bool {
+			kv, mods := parseAccel(accel)
+			if kv == 0 {
+				return false
+			}
+
+			cleanState := state & (gdk.ControlMask | gdk.ShiftMask | gdk.AltMask)
+			
+			if mods == 0 {
+				focus := a.win.Focus()
+				if focus != nil {
+					_, isEntry := focus.(*gtk.Entry)
+					_, isSearch := focus.(*gtk.SearchEntry)
+					_, isTextView := focus.(*gtk.TextView)
+					if isEntry || isSearch || isTextView {
+						return false
+					}
+				}
+			}
+
+			if kv >= gdk.KEY_a && kv <= gdk.KEY_z {
+				upKv := kv - (gdk.KEY_a - gdk.KEY_A)
+				if (keyval == kv || keyval == upKv) && cleanState == mods {
+					return true
+				}
+			}
+			return keyval == kv && cleanState == mods
+		}
+
+		if match(a.cfg.Hotkeys.Refresh) {
+			a.doReload(true)
+			return true
+		}
+		if match(a.cfg.Hotkeys.Commit) {
+			if a.commitButton.IsSensitive() {
+				a.commitButton.Activate()
+			}
+			return true
+		}
+		if match(a.cfg.Hotkeys.Fetch) {
+			a.runGitOp("Fetching…", "Fetch complete", Fetch)
+			return true
+		}
+		if match(a.cfg.Hotkeys.Pull) {
+			a.runGitOpSafe("Pulling…", "Pull complete", Pull)
+			return true
+		}
+		if match(a.cfg.Hotkeys.Push) {
+			a.runGitOp("Pushing…", "Push complete", Push)
+			return true
+		}
+		if match(a.cfg.Hotkeys.Branch) {
+			a.stack.SetVisibleChildName("branches")
+			return true
+		}
+		if match(a.cfg.Hotkeys.Panel1) {
+			a.fileListBox.GrabFocus()
+			return true
+		}
+		if match(a.cfg.Hotkeys.Panel2) {
+			a.commitListBox.GrabFocus()
+			return true
+		}
+		if match(a.cfg.Hotkeys.Panel3) {
+			if a.showSplit {
+				a.diffViewLeft.GrabFocus()
+			} else {
+				a.diffView.GrabFocus()
+			}
+			return true
+		}
+		if match(a.cfg.Hotkeys.PrevCommit) {
+			a.navigateCommitHistory(-1)
+			return true
+		}
+		if match(a.cfg.Hotkeys.NextCommit) {
+			a.navigateCommitHistory(1)
+			return true
+		}
+		if match(a.cfg.Hotkeys.ToggleSplit) {
+			a.splitToggleBtn.Activate()
+			return true
+		}
+		if match(a.cfg.Hotkeys.Search) {
+			a.searchEntry.GrabFocus()
+			return true
+		}
+		if match(a.cfg.Hotkeys.OpenDir) {
+			a.openPathDialog()
+			return true
+		}
+
+		return false
+	})
+	a.win.AddController(keyController)
 }
 
 func (a *App) updateHeaderInfo() {
