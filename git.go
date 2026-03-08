@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -367,6 +368,7 @@ func GetBranches(repoPath string) []BranchInfo {
 
 	var branches []BranchInfo
 
+	out = strings.ReplaceAll(out, "\r\n", "\n")
 	for _, line := range strings.Split(out, "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
@@ -429,6 +431,7 @@ func GetRemotes(repoPath string) []RemoteInfo {
 
 	var remotes []RemoteInfo
 
+	out = strings.ReplaceAll(out, "\r\n", "\n")
 	for _, name := range strings.Split(out, "\n") {
 		name = strings.TrimSpace(name)
 		if name == "" {
@@ -525,6 +528,7 @@ func GetLog(repoPath string, max int) []Commit {
 
 	var commits []Commit
 
+	out = strings.ReplaceAll(out, "\r\n", "\n")
 	for _, line := range strings.Split(out, "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
@@ -572,7 +576,7 @@ func GetStatus(repoPath string) []FileStatus {
 	}
 
 	var files []FileStatus
-
+	out = strings.ReplaceAll(out, "\r\n", "\n")
 	for _, line := range strings.Split(out, "\n") {
 		if len(line) < 4 {
 			continue
@@ -614,6 +618,7 @@ func GetStashes(repoPath string) []StashEntry {
 	}
 
 	var stashes []StashEntry
+	out = strings.ReplaceAll(out, "\r\n", "\n")
 	for i, line := range strings.Split(out, "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
@@ -905,9 +910,23 @@ func AmendCommit(repoPath, newMessage string) error {
 
 func OpenInEditor(repoPath, filePath, editorCmd string) {
 	if editorCmd == "" {
-		editorCmd = "micro"
+		editorCmd = os.Getenv("EDITOR")
 	}
-	cmd := exec.Command("sh", "-c", fmt.Sprintf("%s %s", editorCmd, filepath.Join(repoPath, filePath)))
+	if editorCmd == "" {
+		if runtime.GOOS == "windows" {
+			editorCmd = "notepad"
+		} else {
+			editorCmd = "vi"
+		}
+	}
+
+	fullPath := filepath.Join(repoPath, filePath)
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("cmd", "/C", fmt.Sprintf("%s %s", editorCmd, fullPath))
+	} else {
+		cmd = exec.Command("sh", "-c", fmt.Sprintf("%s %s", editorCmd, fullPath))
+	}
 	cmd.Start()
 }
 func CheckoutCommit(repoPath, hash string) error {
