@@ -3361,7 +3361,7 @@ func (a *App) setupHotkeys() {
 
 			cleanState := state & (gdk.ControlMask | gdk.ShiftMask | gdk.AltMask)
 			
-			if mods == 0 {
+			if (cleanState & (gdk.ControlMask | gdk.AltMask)) == 0 {
 				focus := a.win.Focus()
 				if focus != nil {
 					_, isEntry := focus.(*gtk.Entry)
