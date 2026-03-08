@@ -11,6 +11,20 @@ import (
 	"time"
 )
 
+type LogConfig struct {
+	Enabled bool
+	Path    string
+}
+
+var globalLogConfig LogConfig
+
+func SetLogConfig(enabled bool, path string) {
+	globalLogConfig = LogConfig{
+		Enabled: enabled,
+		Path:    path,
+	}
+}
+
 type Commit struct {
 	Hash        string
 	ShortHash   string
@@ -263,7 +277,23 @@ func gitCmd(repoPath string, args ...string) (string, error) {
 }
 
 func logGitOp(repoPath string, args []string, err error, stdout, stderr string, duration time.Duration) {
-	f, lerr := os.OpenFile("gig.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if !globalLogConfig.Enabled {
+		return
+	}
+
+	logFile := "gig.log"
+	if globalLogConfig.Path != "" {
+		if globalLogConfig.Path == ".config" {
+			if d, err := os.UserConfigDir(); err == nil {
+				logFile = filepath.Join(d, "gig", "gig.log")
+				os.MkdirAll(filepath.Dir(logFile), 0755)
+			}
+		} else {
+			logFile = globalLogConfig.Path
+		}
+	}
+
+	f, lerr := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if lerr != nil {
 		return
 	}
@@ -467,6 +497,10 @@ func GetAheadBehind(repoPath string) (int, int) {
 		"HEAD...@{upstream}",
 	)
 	if err != nil {
+		// fatal: no upstream configured for branch '...'
+		if strings.Contains(err.Error(), "no upstream") {
+			return -1, -1
+		}
 		return 0, 0
 	}
 

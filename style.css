@@ -354,6 +354,17 @@ button.head-jump-btn {
   min-height: 28px;
 }
 
+button.fix-upstream-btn {
+  background-color: alpha(@accent, 0.10);
+  color: @accent;
+  border-color: alpha(@accent, 0.35);
+}
+
+button.fix-upstream-btn:hover {
+  background-color: alpha(@accent, 0.20);
+  border-color: @accent;
+}
+
 button.head-jump-btn:hover {
   background-color: alpha(@modified, 0.20);
   border-color: @modified;
@@ -671,7 +682,7 @@ popover.background > contents:hover {
   border: 1px solid @border;
   border-radius: 6px;
   padding: 2px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.85);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.8);
 }
 
 popover.background > arrow,
@@ -1262,7 +1273,7 @@ row.section-header:hover {
 .overlay-panel {
   background-color: @surface;
   border: 1px solid @border;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.75);
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.9);
   border-radius: 2px;
 }
 

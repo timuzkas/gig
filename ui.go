@@ -65,6 +65,7 @@ type App struct {
 	collapseAllBtn *gtk.Button
 	copyHashBtn    *gtk.Button
 	headJumpBtn    *gtk.Button
+	setUpstreamFixBtn *gtk.Button
 
 	repoTitle   *gtk.Label
 	repoPath    *gtk.Label
@@ -1606,8 +1607,17 @@ func (a *App) buildStatusStrip() *gtk.Box {
 
 	a.statsLabel = gtk.NewLabel("")
 
+	a.setUpstreamFixBtn = gtk.NewButtonWithLabel("Fix?")
+	a.setUpstreamFixBtn.AddCSSClass("flat")
+	a.setUpstreamFixBtn.AddCSSClass("head-jump-btn")
+	a.setUpstreamFixBtn.AddCSSClass("fix-upstream-btn")
+	a.setUpstreamFixBtn.SetTooltipText("Set upstream tracking for this branch")
+	a.setUpstreamFixBtn.SetVisible(false)
+	a.setUpstreamFixBtn.ConnectClicked(func() { a.openSetUpstreamDialog() })
+
 	box.Append(a.branchLabel)
 	box.Append(a.aheadLabel)
+	box.Append(a.setUpstreamFixBtn)
 	box.Append(a.statsLabel)
 
 	spacer := gtk.NewBox(gtk.OrientationHorizontal, 0)
@@ -3170,12 +3180,18 @@ func (a *App) updateStatusStrip() {
 
 	a.branchLabel.SetText(a.state.Branch)
 
-	if a.state.Ahead > 0 || a.state.Behind > 0 {
+	if a.state.Ahead == -1 && a.state.Behind == -1 {
+		a.aheadLabel.SetText("! No Upstream")
+		a.aheadLabel.SetVisible(true)
+		a.setUpstreamFixBtn.SetVisible(true)
+	} else if a.state.Ahead > 0 || a.state.Behind > 0 {
 		a.aheadLabel.SetText(fmt.Sprintf("↑%d ↓%d", a.state.Ahead, a.state.Behind))
 		a.aheadLabel.SetVisible(true)
+		a.setUpstreamFixBtn.SetVisible(false)
 	} else {
 		a.aheadLabel.SetText("")
 		a.aheadLabel.SetVisible(false)
+		a.setUpstreamFixBtn.SetVisible(false)
 	}
 
 	var parts []string
@@ -3605,5 +3621,76 @@ func gitCmd2(repoPath string, args ...string) error {
 	return err
 }
 
-func (a *App) openRepoConfigDialog() { a.openRepoConfigPanel() }
+func (a *App) openSetUpstreamDialog() {
+	if a.state == nil {
+		return
+	}
+
+	content := gtk.NewBox(gtk.OrientationVertical, 12)
+	content.SetMarginTop(16)
+	content.SetMarginBottom(16)
+	content.SetMarginStart(16)
+	content.SetMarginEnd(16)
+
+	infoLbl := gtk.NewLabel("Configure upstream tracking for branch: " + a.state.Branch)
+	infoLbl.AddCSSClass("dim")
+	infoLbl.SetXAlign(0)
+	content.Append(infoLbl)
+
+	grid := gtk.NewGrid()
+	grid.SetColumnSpacing(10)
+	grid.SetRowSpacing(10)
+
+	grid.Attach(gtk.NewLabel("Remote:"), 0, 0, 1, 1)
+	
+	remotes := GetRemotes(a.state.Path)
+	var remoteNames []string
+	for _, r := range remotes {
+		remoteNames = append(remoteNames, r.Name)
+	}
+	if len(remoteNames) == 0 {
+		remoteNames = []string{"origin"}
+	}
+	
+	remoteDrop := gtk.NewDropDown(gtk.NewStringList(remoteNames), nil)
+	grid.Attach(remoteDrop, 1, 0, 1, 1)
+
+	grid.Attach(gtk.NewLabel("Branch:"), 0, 1, 1, 1)
+	branchEntry := gtk.NewEntry()
+	branchEntry.SetText(a.state.Branch)
+	branchEntry.SetHExpand(true)
+	grid.Attach(branchEntry, 1, 1, 1, 1)
+
+	content.Append(grid)
+
+	btnRow := gtk.NewBox(gtk.OrientationHorizontal, 8)
+	btnRow.SetHAlign(gtk.AlignEnd)
+
+	cancelBtn := gtk.NewButtonWithLabel("Cancel")
+	cancelBtn.ConnectClicked(func() { a.hideOverlay() })
+	btnRow.Append(cancelBtn)
+
+	okBtn := gtk.NewButtonWithLabel("Set Upstream")
+	okBtn.AddCSSClass("suggested-action")
+	okBtn.ConnectClicked(func() {
+		sel := remoteDrop.Selected()
+		if sel == gtk.InvalidListPosition {
+			return
+		}
+		modelObj := remoteDrop.Model()
+		stringList := modelObj.Cast().(*gtk.StringList)
+		remote := stringList.String(sel)
+		branch := strings.TrimSpace(branchEntry.Text())
+		
+		a.hideOverlay()
+		a.runGitOp("Setting upstream...", "Upstream configured", func(repo string) error {
+			return PushSetUpstream(repo, remote, branch)
+		})
+	})
+	btnRow.Append(okBtn)
+	content.Append(btnRow)
+
+	card := a.buildOverlayCard("Set Upstream", 440, content)
+	a.showOverlay(card)
+}
 func (a *App) populateStashes()      { a.populateStashList() }
