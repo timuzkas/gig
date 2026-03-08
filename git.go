@@ -261,7 +261,7 @@ func gitCmd(repoPath string, args ...string) (string, error) {
 	err := cmd.Run()
 	duration := time.Since(start)
 
-	stdoutStr := strings.TrimSpace(stdout.String())
+	stdoutStr := strings.TrimRight(stdout.String(), "\n\r\t ")
 	stderrStr := strings.TrimSpace(stderr.String())
 
 	logGitOp(repoPath, args, err, stdoutStr, stderrStr, duration)
