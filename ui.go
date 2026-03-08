@@ -1836,7 +1836,7 @@ func (a *App) commitsChanged(nc []Commit) bool {
 		if i >= 50 {
 			break
 		}
-		if a.state.Commits[i].Hash != nc[i].Hash {
+		if a.state.Commits[i].Hash != nc[i].Hash || a.state.Commits[i].RefNames != nc[i].RefNames {
 			return true
 		}
 	}
