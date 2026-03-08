@@ -1031,6 +1031,22 @@ listbox row:selected *,
   border-color: @border;
 }
 
+.sidebar-add-btn {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: @text_dim;
+  padding: 0 6px;
+  min-width: 20px;
+  min-height: 20px;
+  border-radius: 4px;
+}
+
+.sidebar-add-btn:hover {
+  background-color: @surface2;
+  color: @text;
+}
+
 .sidebar-section,
 .sidebar-section *,
 row.section-header,

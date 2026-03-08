@@ -156,6 +156,7 @@ func (a *App) build() {
 	a.win.SetChild(root)
 
 	keyController := gtk.NewEventControllerKey()
+	keyController.SetPropagationPhase(gtk.PhaseCapture)
 	keyController.ConnectKeyPressed(func(keyval uint, _ uint, state gdk.ModifierType) bool {
 		if (state&gdk.ControlMask != 0) && keyval == uint(gdk.KEY_O) {
 			a.openPathDialog()
@@ -1260,7 +1261,12 @@ func (a *App) buildRepoSidebar() *gtk.Box {
 	box := gtk.NewBox(gtk.OrientationVertical, 0)
 	box.AddCSSClass("repo-sidebar")
 
-	hdr := a.makeSidebarHeader("Repositories", nil)
+	addBtn := gtk.NewButtonWithLabel("+")
+	addBtn.AddCSSClass("sidebar-add-btn")
+	addBtn.SetTooltipText("Open directory (Ctrl+O)")
+	addBtn.ConnectClicked(func() { a.openPathDialog() })
+
+	hdr := a.makeSidebarHeader("Repositories", addBtn)
 	box.Append(hdr)
 
 	scroll := gtk.NewScrolledWindow()
