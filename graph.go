@@ -14,7 +14,6 @@ type CommitGraphInfo struct {
 	CommitLane int
 }
 
-// GraphColor returns a consistent color for a given lane index
 func GraphColor(index int) [3]float64 {
 	colors := [][3]float64{
 		{0.79, 0.58, 0.36}, // Orange
@@ -86,7 +85,6 @@ func DrawGraph(cr *cairo.Context, info CommitGraphInfo, width, height float64) {
 
 	cr.SetLineWidth(1.5)
 
-	// Draw lines for all active lanes
 	for i, lane := range info.Lanes {
 		x := centerX + float64(i)*laneWidth
 		cr.SetSourceRGB(lane.Color[0], lane.Color[1], lane.Color[2])
@@ -96,7 +94,6 @@ func DrawGraph(cr *cairo.Context, info CommitGraphInfo, width, height float64) {
 		cr.Stroke()
 	}
 
-	// Draw the commit dot
 	if info.CommitLane >= 0 && info.CommitLane < len(info.Lanes) {
 		x := centerX + float64(info.CommitLane)*laneWidth
 		y := height / 2.0
@@ -106,7 +103,6 @@ func DrawGraph(cr *cairo.Context, info CommitGraphInfo, width, height float64) {
 		cr.Arc(x, y, dotRadius, 0, 2*3.14159)
 		cr.Fill()
 		
-		// Inner dot for a "node" look
 		cr.SetSourceRGB(0.1, 0.1, 0.1) // Match background approximately
 		cr.Arc(x, y, 1.2, 0, 2*3.14159)
 		cr.Fill()

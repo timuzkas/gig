@@ -75,8 +75,6 @@ type RepoState struct {
 	Behind   int
 }
 
-// ── Conflict Resolution ──────────────────────────────────────────
-
 type ConflictKind string
 
 const (
@@ -143,6 +141,11 @@ func GetConflictFiles(repoPath string) []ConflictFile {
 		switch xy {
 		case "DD", "AU", "UD", "UA", "DU", "AA", "UU":
 			path := strings.TrimSpace(line[3:])
+			if strings.HasPrefix(path, "\"") && strings.HasSuffix(path, "\"") {
+				path = path[1 : len(path)-1]
+				path = strings.ReplaceAll(path, "\\\"", "\"")
+				path = strings.ReplaceAll(path, "\\\\", "\\")
+			}
 			files = append(files, ConflictFile{
 				Path: path,
 				Kind: ConflictKind(xy),
@@ -174,13 +177,14 @@ func ParseConflictHunks(content string) []ConflictHunk {
 	cur := stateNormal
 	var hunk ConflictHunk
 	for i, line := range lines {
+		line = strings.TrimRight(line, "\r")
 		switch {
 		case strings.HasPrefix(line, "<<<<<<< "):
 			cur = stateOurs
 			hunk = ConflictHunk{StartLine: i, Resolution: ResolutionNone}
 		case strings.HasPrefix(line, "||||||| ") && cur == stateOurs:
 			cur = stateBase
-		case line == "=======" && (cur == stateOurs || cur == stateBase):
+		case strings.HasPrefix(line, "=======") && len(line) >= 7 && (cur == stateOurs || cur == stateBase):
 			cur = stateTheirs
 		case strings.HasPrefix(line, ">>>>>>> ") && cur == stateTheirs:
 			hunks = append(hunks, hunk)
@@ -206,7 +210,6 @@ func MarkResolved(repoPath, path string) error {
 }
 
 func AbortMerge(repoPath string) error {
-	// Try merge abort first, then rebase abort, etc.
 	if _, err := gitCmd(repoPath, "merge", "--abort"); err == nil {
 		return nil
 	}
@@ -220,14 +223,12 @@ func AbortMerge(repoPath string) error {
 }
 
 func ContinueMerge(repoPath string) error {
-	// Try merge continue, then rebase continue
 	if _, err := gitCmd(repoPath, "merge", "--continue", "--no-edit"); err == nil {
 		return nil
 	}
 	if _, err := gitCmd(repoPath, "rebase", "--continue", "--no-edit"); err == nil {
 		return nil
 	}
-	// Note: cherry-pick continue might need different handling
 	return fmt.Errorf("could not continue operation")
 }
 
@@ -249,7 +250,6 @@ func gitCmd(repoPath string, args ...string) (string, error) {
 	stdoutStr := strings.TrimSpace(stdout.String())
 	stderrStr := strings.TrimSpace(stderr.String())
 
-	// Log the command
 	logGitOp(repoPath, args, err, stdoutStr, stderrStr, duration)
 
 	if err != nil {
@@ -306,19 +306,16 @@ func FindRepoRoot(path string) (string, error) {
 }
 
 func GetCurrentBranch(repoPath string) string {
-	// 1. Try modern way
 	out, err := gitCmd(repoPath, "branch", "--show-current")
 	if err == nil && out != "" {
 		return out
 	}
 
-	// 2. Fallback for detached heads or older git versions
 	out, err = gitCmd(repoPath, "rev-parse", "--abbrev-ref", "HEAD")
 	if err == nil && out != "HEAD" {
 		return out
 	}
 
-	// 3. Last resort: get the hash or "detached"
 	out, err = gitCmd(repoPath, "rev-parse", "--short", "HEAD")
 	if err == nil {
 		return "(detached at " + out + ")"
@@ -351,7 +348,6 @@ func GetBranches(repoPath string) []BranchInfo {
 		}
 
 		name := strings.TrimSpace(parts[1])
-		// Skip remote tracking aliases (remotes/origin/HEAD -> ...)
 		if strings.Contains(name, " -> ") {
 			continue
 		}
@@ -381,7 +377,6 @@ func GetBranches(repoPath string) []BranchInfo {
 			if track != "" {
 				fmt.Sscanf(track, "ahead %d", &b.Ahead)
 				fmt.Sscanf(track, "behind %d", &b.Behind)
-				// "ahead N, behind M"
 				if strings.Contains(track, ",") {
 					p := strings.SplitN(track, ",", 2)
 					fmt.Sscanf(strings.TrimSpace(p[0]), "ahead %d", &b.Ahead)
@@ -578,8 +573,6 @@ func GetStatus(repoPath string) []FileStatus {
 	return files
 }
 
-// ── Stash ────────────────────────────────────────────────────────
-
 func GetStashes(repoPath string) []StashEntry {
 	out, err := gitCmd(repoPath, "stash", "list", "--format=%gd|%s|%ar")
 	if err != nil || strings.TrimSpace(out) == "" {
@@ -639,8 +632,6 @@ func StashShow(repoPath string, index int) string {
 	return out
 }
 
-// ── Diff / Show ──────────────────────────────────────────────────
-
 func GetFileDiff(repoPath, filePath string, staged bool) string {
 	args := []string{"diff", "--no-color"}
 	if staged {
@@ -663,8 +654,6 @@ func GetCommitDiff(repoPath, hash string) string {
 	return out
 }
 
-// ── Stage / Unstage ──────────────────────────────────────────────
-
 func StageFile(repoPath, filePath string) error {
 	_, err := gitCmd(repoPath, "add", "--", filePath)
 	return err
@@ -679,8 +668,6 @@ func StageAll(repoPath string) error {
 	_, err := gitCmd(repoPath, "add", "-A")
 	return err
 }
-
-// ── Commit / Branch ops ─────────────────────────────────────────
 
 func DoCommit(repoPath, message string) error {
 	_, err := gitCmd(repoPath, "commit", "-m", message)
@@ -721,8 +708,6 @@ func RebaseBranch(repoPath, onto string) error {
 	return err
 }
 
-// ── Remote ops ───────────────────────────────────────────────────
-
 func Pull(repoPath string) error {
 	_, err := gitCmd(repoPath, "pull")
 	return err
@@ -742,8 +727,6 @@ func Fetch(repoPath string) error {
 	_, err := gitCmd(repoPath, "fetch", "--all")
 	return err
 }
-
-// ── State loader ─────────────────────────────────────────────────
 
 func LoadRepoState(repoPath string, maxCommits int) *RepoState {
 	root, err := FindRepoRoot(repoPath)
@@ -844,7 +827,6 @@ func IgnoreFile(repoPath, filePath string) error {
 }
 
 func GetIgnoredFiles(repoPath string) []string {
-	// Lists files that are ignored but exist on disk
 	out, err := gitCmd(repoPath, "ls-files", "--others", "--ignored", "--exclude-standard")
 	if err != nil {
 		return nil
@@ -884,7 +866,6 @@ func OpenInEditor(repoPath, filePath, editorCmd string) {
 	if editorCmd == "" {
 		editorCmd = "micro"
 	}
-	// Run detached
 	cmd := exec.Command("sh", "-c", fmt.Sprintf("%s %s", editorCmd, filepath.Join(repoPath, filePath)))
 	cmd.Start()
 }

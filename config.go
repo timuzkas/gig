@@ -37,11 +37,13 @@ type ColorsConfig struct {
 }
 
 type BehaviorConfig struct {
-	MaxCommits         int  `toml:"max_commits"`
-	AutoRefresh        bool `toml:"auto_refresh"`
-	RefreshIntervalSec int  `toml:"refresh_interval_sec"`
-	ScanParentOnStart  bool `toml:"scan_parent_on_start"`
-	EditorCommand string `toml:"editor_command"`
+	MaxCommits         int    `toml:"max_commits"`
+	AutoRefresh        bool   `toml:"auto_refresh"`
+	RefreshIntervalSec int    `toml:"refresh_interval_sec"`
+	ScanParentOnStart  bool   `toml:"scan_parent_on_start"`
+	EditorCommand      string `toml:"editor_command"`
+	Logging            bool   `toml:"logging"`
+	LogPath            string `toml:"log_path"`
 }
 
 type FeaturesConfig struct {
@@ -83,6 +85,8 @@ func DefaultConfig() Config {
 			AutoRefresh:        true,
 			RefreshIntervalSec: 5,
 			ScanParentOnStart:  true,
+			Logging:            false,
+			LogPath:            "", // Empty means relative "gig.log" or handled by logic
 		},
 		Features: FeaturesConfig{
 			AsyncStateReload:  true,

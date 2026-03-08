@@ -20,8 +20,6 @@ import (
 //go:embed style.css
 var defaultCSS string
 
-// ── App struct ────────────────────────────────────────────────────
-
 type App struct {
 	cfg   Config
 	app   *gtk.Application
@@ -30,19 +28,16 @@ type App struct {
 	repos []RepoInfo
 	state *RepoState
 
-	// Layout
 	rootOverlay   *gtk.Overlay
 	overlayBox    *gtk.Box
 	overlayReveal *gtk.Revealer
 
-	// Lists
 	repoListBox   *gtk.ListBox
 	fileListBox   *gtk.ListBox
 	commitListBox *gtk.ListBox
 	branchListBox *gtk.ListBox
 	stashListBox  *gtk.ListBox
 
-	// Diff
 	diffView      *gtk.Box
 	diffScroll    *gtk.ScrolledWindow
 	diffBuf       *gtk.TextBuffer
@@ -54,14 +49,12 @@ type App struct {
 	diffViewRight *gtk.TextView
 	diffBufRight  *gtk.TextBuffer
 
-	// Commit details header
 	commitHeader      *gtk.Box
 	commitAuthor      *gtk.Label
 	commitHashFull    *gtk.Label
 	commitDateFull    *gtk.Label
 	commitSubjectBold *gtk.Label
 
-	// Controls
 	searchEntry  *gtk.SearchEntry
 	branchSearch *gtk.SearchEntry
 	branchDrop   *gtk.DropDown
@@ -73,7 +66,6 @@ type App struct {
 	copyHashBtn    *gtk.Button
 	headJumpBtn    *gtk.Button
 
-	// Labels
 	repoTitle   *gtk.Label
 	repoPath    *gtk.Label
 	infoLabel   *gtk.Label
@@ -85,7 +77,6 @@ type App struct {
 
 	stack *gtk.Stack
 
-	// Selection tracking
 	selectedRepoRow   *gtk.ListBoxRow
 	selectedFileRow   *gtk.ListBoxRow
 	selectedCommitRow *gtk.ListBoxRow
@@ -100,12 +91,10 @@ type App struct {
 	branchDropUpdating bool
 	infoStickyUntil    time.Time
 
-	// Conflict state
 	conflictFiles    []ConflictFile
 	conflictFileIdx  int
 	conflictHunkIdx  int
 
-	// Conflict panel widgets
 	conflictFileList    *gtk.ListBox
 	conflictOursBuf     *gtk.TextBuffer
 	conflictBaseBuf     *gtk.TextBuffer
@@ -115,11 +104,15 @@ type App struct {
 	conflictStatusLbl   *gtk.Label
 	conflictHunkLbl     *gtk.Label
 	conflictContinueBtn *gtk.Button
+	conflictDrafts map[string]string
+	conflictLoading bool
+	conflictPanelOpen bool
 }
 
 func NewApp(cfg Config) *App {
 	a := &App{cfg: cfg}
 	a.repos = DiscoverRepos(cfg.Repos.Paths, cfg.Behavior.ScanParentOnStart)
+	a.conflictDrafts = make(map[string]string)
 	return a
 }
 
@@ -128,8 +121,6 @@ func (a *App) Run() {
 	a.app.ConnectActivate(a.build)
 	a.app.Run(os.Args)
 }
-
-// ── Build ─────────────────────────────────────────────────────────
 
 func (a *App) build() {
 	settings := gtk.SettingsGetDefault()
@@ -178,7 +169,6 @@ func (a *App) build() {
 }
 
 func (a *App) loadCSS() {
-
 	display := gdk.DisplayGetDefault()
 	if display == nil {
 		return
@@ -215,8 +205,6 @@ window { background-color: @bg; }
 	gtk.StyleContextAddProviderForDisplay(display, provider, gtk.STYLE_PROVIDER_PRIORITY_USER)
 }
 
-// ── In-app overlay ────────────────────────────────────────────────
-
 func (a *App) buildOverlayPanel() {
 	a.overlayBox = gtk.NewBox(gtk.OrientationVertical, 0)
 	a.overlayBox.SetVAlign(gtk.AlignCenter)
@@ -245,6 +233,7 @@ func (a *App) showOverlay(child gtk.Widgetter) {
 }
 
 func (a *App) hideOverlay() {
+	a.conflictPanelOpen = false
 	a.overlayReveal.SetRevealChild(false)
 	glib.TimeoutAdd(200, func() bool {
 		a.overlayBox.SetVisible(false)
@@ -294,7 +283,6 @@ func (a *App) gitErrorDialog(title, errMsg string) {
 	content.SetMarginStart(20)
 	content.SetMarginEnd(20)
 
-	// Header/Intro
 	intro := "An error occurred during git operation."
 	var files []string
 	
@@ -331,7 +319,6 @@ func (a *App) gitErrorDialog(title, errMsg string) {
 		}
 		content.Append(fileList)
 	} else {
-		// Fallback for generic errors
 		scroll := gtk.NewScrolledWindow()
 		scroll.SetMinContentHeight(100)
 		scroll.SetMaxContentHeight(300)
@@ -362,8 +349,6 @@ func (a *App) gitErrorDialog(title, errMsg string) {
 					return
 				}
 				a.setInfoOk("Stashed. Retrying checkout…")
-				// We don't easily know the target branch here without more state, 
-				// but usually the user will just try again.
 				a.doReload(true)
 			})
 		}()
@@ -421,7 +406,6 @@ func (a *App) confirmDialog(title, body string, destructive bool, onConfirm func
 	a.showOverlay(card)
 }
 
-// promptDialog — single text input in-app
 func (a *App) promptDialog(title, placeholder, initial string, onOK func(string)) {
 	content := gtk.NewBox(gtk.OrientationVertical, 14)
 	content.SetMarginTop(16)
@@ -455,25 +439,23 @@ func (a *App) promptDialog(title, placeholder, initial string, onOK func(string)
 	a.showOverlay(card)
 }
 
-// ── Conflict Panel ────────────────────────────────────────────────
-
 func (a *App) openConflictPanel() {
 	if a.state == nil {
 		return
 	}
+	a.conflictPanelOpen = true
 	a.conflictFiles = GetConflictFiles(a.state.Path)
 	if len(a.conflictFiles) == 0 {
 		return
 	}
-	a.conflictFileIdx = 0
+	a.conflictFileIdx = -1
 	a.conflictHunkIdx = 0
+	a.conflictDrafts = make(map[string]string)
 
-	// ── Outer card ───────────────────────────────────────────────
 	card := gtk.NewBox(gtk.OrientationVertical, 0)
 	card.AddCSSClass("overlay-panel")
 	card.SetSizeRequest(1100, 700)
 
-	// ── Header ───────────────────────────────────────────────────
 	hdr := gtk.NewBox(gtk.OrientationHorizontal, 10)
 	hdr.AddCSSClass("overlay-header")
 
@@ -507,13 +489,10 @@ func (a *App) openConflictPanel() {
 
 	hdr.Append(titleLbl)
 	hdr.Append(a.conflictStatusLbl)
-	hdr.Append(abortBtn)
 	card.Append(hdr)
 
-	// ── Body: file list + editor side by side ─────────────────────
 	body := gtk.NewPaned(gtk.OrientationHorizontal)
 
-	// Left: file list
 	leftBox := gtk.NewBox(gtk.OrientationVertical, 0)
 	leftBox.SetSizeRequest(220, -1)
 
@@ -531,6 +510,13 @@ func (a *App) openConflictPanel() {
 		if row == nil {
 			return
 		}
+
+		if a.conflictResBuf != nil &&
+			a.conflictFileIdx >= 0 &&
+			a.conflictFileIdx < len(a.conflictFiles) {
+			a.saveCurrentConflictDraft()
+		}
+
 		a.conflictFileIdx = row.Index()
 		a.conflictHunkIdx = 0
 		a.loadConflictFile()
@@ -541,27 +527,34 @@ func (a *App) openConflictPanel() {
 	fileScroll.SetChild(a.conflictFileList)
 	leftBox.Append(fileScroll)
 
-	// Bulk action buttons
-	bulkBox := gtk.NewBox(gtk.OrientationVertical, 4)
-	bulkBox.SetMarginTop(8)
-	bulkBox.SetMarginBottom(8)
-	bulkBox.SetMarginStart(8)
-	bulkBox.SetMarginEnd(8)
+	bulkLabel := gtk.NewLabel("BULK ACTIONS")
+	bulkLabel.AddCSSClass("section-label")
+	bulkLabel.SetMarginTop(10)
+	bulkLabel.SetMarginStart(14)
+	bulkLabel.SetXAlign(0)
+	leftBox.Append(bulkLabel)
 
-	takeAllOursBtn := gtk.NewButtonWithLabel("Take All Ours")
+	bulkBox := gtk.NewBox(gtk.OrientationHorizontal, 6)
+	bulkBox.AddCSSClass("conflict-bulk-actions")
+	bulkBox.SetHExpand(true)
+
+	takeAllOursBtn := gtk.NewButtonWithLabel("Ours")
+	takeAllOursBtn.SetTooltipText("Take ALL ours for this file")
+	takeAllOursBtn.SetHExpand(true)
 	takeAllOursBtn.ConnectClicked(func() {
 		a.confirmDialog("Take All Ours?",
-			"Accept our version for all remaining conflicts in this file?",
+			"Accept our version for all conflicts in this file?",
 			false, func() { a.resolveFileWith(ResolutionOurs) })
 	})
 
-	takeAllTheirsBtn := gtk.NewButtonWithLabel("Take All Theirs")
+	takeAllTheirsBtn := gtk.NewButtonWithLabel("Theirs")
+	takeAllTheirsBtn.SetTooltipText("Take ALL theirs for this file")
+	takeAllTheirsBtn.SetHExpand(true)
 	takeAllTheirsBtn.ConnectClicked(func() {
 		a.confirmDialog("Take All Theirs?",
-			"Accept their version for all remaining conflicts in this file?",
+			"Accept their version for all conflicts in this file?",
 			false, func() { a.resolveFileWith(ResolutionTheirs) })
 	})
-
 	bulkBox.Append(takeAllOursBtn)
 	bulkBox.Append(takeAllTheirsBtn)
 	leftBox.Append(bulkBox)
@@ -569,22 +562,22 @@ func (a *App) openConflictPanel() {
 	body.SetStartChild(leftBox)
 	body.SetResizeStartChild(false)
 
-	// Right: hunk editor
 	rightBox := a.buildConflictEditor()
 	body.SetEndChild(rightBox)
 	body.SetPosition(220)
 	card.Append(body)
 
-	// ── Footer ────────────────────────────────────────────────────
 	footer := gtk.NewBox(gtk.OrientationHorizontal, 8)
-	footer.AddCSSClass("overlay-header") // reuse header style for footer
+	footer.AddCSSClass("overlay-header")
 	footer.SetMarginTop(0)
+
+	footer.Append(abortBtn)
 
 	spacer := gtk.NewBox(gtk.OrientationHorizontal, 0)
 	spacer.SetHExpand(true)
 	footer.Append(spacer)
 
-	a.conflictContinueBtn = gtk.NewButtonWithLabel("Continue Merge (0/0 resolved)")
+	a.conflictContinueBtn = gtk.NewButtonWithLabel("Continue Merge")
 	a.conflictContinueBtn.AddCSSClass("suggested-action")
 	a.conflictContinueBtn.SetSensitive(false)
 	a.conflictContinueBtn.ConnectClicked(func() {
@@ -604,10 +597,35 @@ func (a *App) openConflictPanel() {
 	footer.Append(a.conflictContinueBtn)
 	card.Append(footer)
 
-	// Populate file list and load first file
 	a.populateConflictFileList()
-	a.loadConflictFile()
+	// Row selection triggers loading, so we don't call loadConflictFile manually if row 0 is selected
+	if a.conflictFileIdx == -1 && len(a.conflictFiles) > 0 {
+		a.conflictFileIdx = 0
+		a.loadConflictFile()
+	}
 	a.showOverlay(card)
+}
+
+func (a *App) saveCurrentConflictDraft() {
+	if a.conflictLoading || a.conflictResBuf == nil ||
+		a.conflictFileIdx >= len(a.conflictFiles) {
+		return
+	}
+
+	path := a.conflictFiles[a.conflictFileIdx].Path
+	text := a.conflictResBuf.Text(
+		a.conflictResBuf.StartIter(),
+		a.conflictResBuf.EndIter(),
+		false,
+	)
+	a.conflictDrafts[path] = text
+}
+
+func (a *App) getConflictDraft(path string, fallback string) string {
+	if text, ok := a.conflictDrafts[path]; ok {
+		return text
+	}
+	return fallback
 }
 
 func (a *App) buildConflictEditor() *gtk.Box {
@@ -615,70 +633,100 @@ func (a *App) buildConflictEditor() *gtk.Box {
 	box.SetVExpand(true)
 	box.SetHExpand(true)
 
-	// Three read-only panes stacked vertically in a scrollable area,
-	// then a resolution pane below
-	threePane := gtk.NewPaned(gtk.OrientationVertical)
+	mainPaned := gtk.NewPaned(gtk.OrientationVertical)
+	mainPaned.SetVExpand(true)
+	mainPaned.SetHExpand(true)
 
-	topPane := gtk.NewPaned(gtk.OrientationVertical)
+	topPaned := gtk.NewPaned(gtk.OrientationHorizontal)
+	topPaned.SetVExpand(true)
+	topPaned.SetHExpand(true)
 
-	// OURS
-	oursBox := a.buildConflictPane("OURS", "conflict-ours", &a.conflictOursBuf)
-	// BASE  
-	baseBox := a.buildConflictPane("BASE (common ancestor)", "conflict-base", &a.conflictBaseBuf)
-	// THEIRS
-	theirsBox := a.buildConflictPane("THEIRS", "conflict-theirs", &a.conflictTheirsBuf)
+	oursBox := a.buildConflictPane(
+		"OURS",
+		"conflict-ours",
+		&a.conflictOursBuf,
+	)
+	theirsBox := a.buildConflictPane(
+		"THEIRS",
+		"conflict-theirs",
+		&a.conflictTheirsBuf,
+	)
 
-	topPane.SetStartChild(oursBox)
-	topPane.SetEndChild(baseBox)
-	threePane.SetStartChild(topPane)
-	threePane.SetEndChild(theirsBox)
+	a.conflictBaseBuf = gtk.NewTextBuffer(nil)
 
-	// RESOLUTION — editable
+	topPaned.SetStartChild(oursBox)
+	topPaned.SetEndChild(theirsBox)
+	topPaned.SetResizeStartChild(true)
+	topPaned.SetResizeEndChild(true)
+	topPaned.SetShrinkStartChild(true)
+	topPaned.SetShrinkEndChild(true)
+	topPaned.SetPosition(470)
+
 	resHeader := gtk.NewBox(gtk.OrientationHorizontal, 6)
 	resHeader.AddCSSClass("conflict-pane-header")
+
 	resLbl := gtk.NewLabel("RESOLUTION")
+	resLbl.AddCSSClass("conflict-pane-label")
 	resLbl.AddCSSClass("conflict-pane-label-resolution")
 	resLbl.SetXAlign(0)
 	resLbl.SetHExpand(true)
 	resHeader.Append(resLbl)
 
 	a.conflictResBuf = gtk.NewTextBuffer(nil)
+	a.conflictResBuf.ConnectChanged(func() {
+		a.saveCurrentConflictDraft()
+	})
+
 	a.conflictResView = gtk.NewTextViewWithBuffer(a.conflictResBuf)
 	a.conflictResView.SetEditable(true)
 	a.conflictResView.SetMonospace(true)
 	a.conflictResView.SetLeftMargin(12)
+	a.conflictResView.SetRightMargin(12)
+	a.conflictResView.SetTopMargin(8)
+	a.conflictResView.SetBottomMargin(8)
+	a.conflictResView.SetWrapMode(gtk.WrapNone)
+	a.conflictResView.SetVExpand(true)
+	a.conflictResView.SetHExpand(true)
 	a.conflictResView.AddCSSClass("conflict-res-view")
 
 	resScroll := gtk.NewScrolledWindow()
 	resScroll.SetVExpand(true)
+	resScroll.SetHExpand(true)
+	resScroll.SetPolicy(gtk.PolicyAutomatic, gtk.PolicyAutomatic)
 	resScroll.SetChild(a.conflictResView)
 
 	resBox := gtk.NewBox(gtk.OrientationVertical, 0)
+	resBox.SetVExpand(true)
+	resBox.SetHExpand(true)
 	resBox.AddCSSClass("conflict-pane")
 	resBox.AddCSSClass("conflict-pane-res")
 	resBox.Append(resHeader)
 	resBox.Append(resScroll)
 
-	// Hunk navigation + action buttons
+	mainPaned.SetStartChild(topPaned)
+	mainPaned.SetEndChild(resBox)
+	mainPaned.SetResizeStartChild(true)
+	mainPaned.SetResizeEndChild(true)
+	mainPaned.SetShrinkStartChild(true)
+	mainPaned.SetShrinkEndChild(false)
+	mainPaned.SetPosition(240)
+
 	navBar := gtk.NewBox(gtk.OrientationHorizontal, 6)
 	navBar.AddCSSClass("conflict-nav-bar")
-	navBar.SetMarginTop(6)
-	navBar.SetMarginBottom(6)
-	navBar.SetMarginStart(10)
-	navBar.SetMarginEnd(10)
 
 	prevBtn := gtk.NewButtonWithLabel("← Prev Hunk")
 	prevBtn.AddCSSClass("flat")
 	prevBtn.ConnectClicked(func() { a.navigateHunk(-1) })
 
-	a.conflictHunkLbl = gtk.NewLabel("Hunk 0/0")
-	a.conflictHunkLbl.SetHExpand(true)
-	a.conflictHunkLbl.SetXAlign(0.5)
+	a.conflictHunkLbl = gtk.NewLabel("Hunk 0 / 0")
 	a.conflictHunkLbl.AddCSSClass("dim")
 
 	nextBtn := gtk.NewButtonWithLabel("Next Hunk →")
 	nextBtn.AddCSSClass("flat")
 	nextBtn.ConnectClicked(func() { a.navigateHunk(1) })
+
+	navSpacer := gtk.NewBox(gtk.OrientationHorizontal, 0)
+	navSpacer.SetHExpand(true)
 
 	useOursBtn := gtk.NewButtonWithLabel("Use Ours")
 	useTheirsBtn := gtk.NewButtonWithLabel("Use Theirs")
@@ -694,13 +742,13 @@ func (a *App) buildConflictEditor() *gtk.Box {
 	navBar.Append(prevBtn)
 	navBar.Append(a.conflictHunkLbl)
 	navBar.Append(nextBtn)
+	navBar.Append(navSpacer)
 	navBar.Append(useOursBtn)
 	navBar.Append(useTheirsBtn)
 	navBar.Append(useBothBtn)
 	navBar.Append(doneBtn)
 
-	box.Append(threePane)
-	box.Append(resBox)
+	box.Append(mainPaned)
 	box.Append(navBar)
 	return box
 }
@@ -777,19 +825,18 @@ func (a *App) loadConflictFile() {
 	}
 	cf := &a.conflictFiles[a.conflictFileIdx]
 
-	// Load three versions
 	base, ours, theirs := GetFileVersions(a.state.Path, cf.Path)
 
-	// Parse hunks from the working-tree file (has conflict markers)
 	content, _ := os.ReadFile(filepath.Join(a.state.Path, cf.Path))
-	cf.Hunks = ParseConflictHunks(string(content))
+	currentText := a.getConflictDraft(cf.Path, string(content))
+	cf.Hunks = ParseConflictHunks(currentText)
 
+	a.conflictLoading = true
 	a.conflictOursBuf.SetText(ours)
 	a.conflictBaseBuf.SetText(base)
 	a.conflictTheirsBuf.SetText(theirs)
-
-	// Seed resolution with the merged file (has markers)
-	a.conflictResBuf.SetText(string(content))
+	a.conflictResBuf.SetText(currentText)
+	a.conflictLoading = false
 
 	a.updateHunkNav()
 	a.scrollToCurrentHunk()
@@ -828,7 +875,6 @@ func (a *App) scrollToCurrentHunk() {
 		return
 	}
 	hunk := cf.Hunks[a.conflictHunkIdx]
-	// Basic scrolling to line
 	iter, _ := a.conflictResBuf.IterAtLine(hunk.StartLine)
 	a.conflictResView.ScrollToIter(iter, 0.1, false, 0, 0)
 }
@@ -838,6 +884,7 @@ func (a *App) applyHunkResolution(r HunkResolution) {
 	if a.conflictHunkIdx >= len(cf.Hunks) {
 		return
 	}
+
 	hunk := &cf.Hunks[a.conflictHunkIdx]
 	hunk.Resolution = r
 
@@ -853,18 +900,48 @@ func (a *App) applyHunkResolution(r HunkResolution) {
 		lines = append(hunk.TheirsLines, hunk.OursLines...)
 	}
 
+	currentIdx := a.conflictHunkIdx
 	a.spliceResolutionBuffer(hunk, lines)
-	a.navigateHunk(1)
+
+	text := a.getConflictDraft(
+		cf.Path,
+		a.conflictResBuf.Text(
+			a.conflictResBuf.StartIter(),
+			a.conflictResBuf.EndIter(),
+			false,
+		),
+	)
+
+	cf.Hunks = ParseConflictHunks(text)
+
+	if len(cf.Hunks) == 0 {
+		a.conflictHunkIdx = 0
+		a.updateHunkNav()
+		return
+	}
+
+	if currentIdx >= len(cf.Hunks) {
+		a.conflictHunkIdx = len(cf.Hunks) - 1
+	} else {
+		a.conflictHunkIdx = currentIdx
+	}
+
+	a.updateHunkNav()
+	a.scrollToCurrentHunk()
 }
 
 func (a *App) spliceResolutionBuffer(hunk *ConflictHunk, lines []string) {
-	// Re-parse current buffer to find actual line numbers (they shift)
-	text := a.conflictResBuf.Text(a.conflictResBuf.StartIter(), a.conflictResBuf.EndIter(), false)
+	text := a.conflictResBuf.Text(
+		a.conflictResBuf.StartIter(),
+		a.conflictResBuf.EndIter(),
+		false,
+	)
 	allLines := strings.Split(text, "\n")
 
 	start := -1
 	end := -1
 	count := 0
+
 	for i, line := range allLines {
 		if strings.HasPrefix(line, "<<<<<<< ") {
 			if count == a.conflictHunkIdx {
@@ -880,40 +957,40 @@ func (a *App) spliceResolutionBuffer(hunk *ConflictHunk, lines []string) {
 		}
 	}
 
-	if start != -1 && end != -1 {
-		startIter, _ := a.conflictResBuf.IterAtLine(start)
-		endIter, _ := a.conflictResBuf.IterAtLine(end + 1)
-		a.conflictResBuf.Delete(startIter, endIter)
-
-		newText := strings.Join(lines, "\n")
-		if len(lines) > 0 {
-			newText += "\n"
-		}
-		insIter, _ := a.conflictResBuf.IterAtLine(start)
-		a.conflictResBuf.Insert(insIter, newText)
+	if start == -1 || end == -1 {
+		return
 	}
+
+	repl := append([]string{}, allLines[:start]...)
+	repl = append(repl, lines...)
+	repl = append(repl, allLines[end+1:]...)
+
+	newText := strings.Join(repl, "\n")
+	a.conflictLoading = true
+	a.conflictResBuf.SetText(newText)
+	a.conflictLoading = false
+	a.saveCurrentConflictDraft()
 }
 
 func (a *App) acceptCurrentHunk() {
 	cf := &a.conflictFiles[a.conflictFileIdx]
-	if a.conflictHunkIdx >= len(cf.Hunks) {
-		return
-	}
-	hunk := &cf.Hunks[a.conflictHunkIdx]
-	if hunk.Resolution == ResolutionNone {
-		hunk.Resolution = ResolutionCustom
-	}
-
-	allResolved := true
-	for _, h := range cf.Hunks {
-		if h.Resolution == ResolutionNone {
-			allResolved = false
-			break
+	
+	// If there are hunks, mark the current one as resolved
+	if len(cf.Hunks) > 0 && a.conflictHunkIdx < len(cf.Hunks) {
+		hunk := &cf.Hunks[a.conflictHunkIdx]
+		if hunk.Resolution == ResolutionNone {
+			hunk.Resolution = ResolutionCustom
 		}
 	}
-	if allResolved {
+
+	// Check if all markers are gone (either by parsing or by manual edit)
+	text := a.conflictResBuf.Text(a.conflictResBuf.StartIter(), a.conflictResBuf.EndIter(), false)
+	remainingHunks := ParseConflictHunks(text)
+	
+	if len(remainingHunks) == 0 {
 		a.markFileResolved(a.conflictFileIdx)
 	} else {
+		// If we still have hunks, try to move to the next one
 		a.navigateHunk(1)
 	}
 }
@@ -939,8 +1016,15 @@ func (a *App) resolveFileWith(r HunkResolution) {
 func (a *App) markFileResolved(idx int) {
 	cf := &a.conflictFiles[idx]
 
-	text := a.conflictResBuf.Text(a.conflictResBuf.StartIter(), a.conflictResBuf.EndIter(), false)
-	os.WriteFile(filepath.Join(a.state.Path, cf.Path), []byte(text), 0644)
+	text := a.getConflictDraft(
+		cf.Path,
+		a.conflictResBuf.Text(
+			a.conflictResBuf.StartIter(),
+			a.conflictResBuf.EndIter(),
+			false,
+		),
+	)
+	_ = os.WriteFile(filepath.Join(a.state.Path, cf.Path), []byte(text), 0644)
 
 	go func(repo, path string) {
 		_ = MarkResolved(repo, path)
@@ -979,31 +1063,24 @@ func (a *App) updateConflictFooter() {
 	a.conflictStatusLbl.SetText(fmt.Sprintf("%d files · %d resolved", total, resolved))
 }
 
-// ── Header ────────────────────────────────────────────────────────
-
 func (a *App) buildHeader() *gtk.HeaderBar {
 	hdr := gtk.NewHeaderBar()
 	hdr.SetShowTitleButtons(true)
 
 	left := gtk.NewBox(gtk.OrientationHorizontal, 5)
 
-	// Branch dropdown — distinct bg from headerbar
 	a.branchDrop = gtk.NewDropDown(nil, nil)
 	a.branchDrop.SetSizeRequest(190, -1)
-
 	a.branchDrop.SetHExpand(false)
 	a.branchDrop.SetHAlign(gtk.AlignStart)
 	a.branchDrop.SetVAlign(gtk.AlignCenter)
-	
 	left.Append(a.branchDrop)
 
 	a.headJumpBtn = gtk.NewButtonWithLabel("")
 	a.headJumpBtn.AddCSSClass("head-jump-btn")
 	a.headJumpBtn.SetVisible(false)
 	a.headJumpBtn.SetTooltipText("Not at HEAD — click to jump back")
-	a.headJumpBtn.ConnectClicked(func() {
-		a.jumpToHEAD()
-	})
+	a.headJumpBtn.ConnectClicked(func() { a.jumpToHEAD() })
 	left.Append(a.headJumpBtn)
 
 	for _, def := range []struct {
@@ -1042,7 +1119,6 @@ func (a *App) buildHeader() *gtk.HeaderBar {
 	return hdr
 }
 
-// runGitOp is a helper for simple async git operations
 func (a *App) runGitOp(startMsg, okMsg string, fn func(string) error) {
 	if a.state == nil {
 		return
@@ -1089,7 +1165,6 @@ func (a *App) jumpToHEAD() {
 	if a.state == nil {
 		return
 	}
-	// Check for uncommitted changes first
 	if a.hasUncommittedChanges() {
 		a.confirmDialog(
 			"Uncommitted Changes",
@@ -1098,9 +1173,7 @@ func (a *App) jumpToHEAD() {
 			func() {
 				go func(repo string) {
 					_ = StashSave(repo, "Auto-stash before HEAD checkout")
-					glib.IdleAdd(func() {
-						a.doCheckoutHEAD()
-					})
+					glib.IdleAdd(func() { a.doCheckoutHEAD() })
 				}(a.state.Path)
 			},
 		)
@@ -1113,7 +1186,6 @@ func (a *App) doCheckoutHEAD() {
 	a.setInfo("Jumping to HEAD…")
 	go func(repo string) {
 		err := Checkout(repo, "HEAD")
-		// If detached, checkout the branch instead
 		if err != nil {
 			err = gitCmd2(repo, "checkout", "-")
 		}
@@ -1140,8 +1212,6 @@ func (a *App) hasUncommittedChanges() bool {
 	return false
 }
 
-// ── Body layout ───────────────────────────────────────────────────
-
 func (a *App) buildBody() *gtk.Paned {
 	outer := gtk.NewPaned(gtk.OrientationHorizontal)
 
@@ -1164,8 +1234,6 @@ func (a *App) buildBody() *gtk.Paned {
 	return outer
 }
 
-// ── Repo sidebar ──────────────────────────────────────────────────
-
 func (a *App) buildRepoSidebar() *gtk.Box {
 	box := gtk.NewBox(gtk.OrientationVertical, 0)
 	box.AddCSSClass("repo-sidebar")
@@ -1186,13 +1254,10 @@ func (a *App) buildRepoSidebar() *gtk.Box {
 	return box
 }
 
-// ── File sidebar ──────────────────────────────────────────────────
-
 func (a *App) buildFileSidebar() *gtk.Box {
 	box := gtk.NewBox(gtk.OrientationVertical, 0)
 	box.AddCSSClass("file-sidebar")
 
-	// Stage All button lives in the header area
 	stageAllBtn := gtk.NewButtonWithLabel("+ All")
 	stageAllBtn.AddCSSClass("flat")
 	stageAllBtn.SetTooltipText("Stage all changes")
@@ -1227,8 +1292,6 @@ func (a *App) buildFileSidebar() *gtk.Box {
 	return box
 }
 
-// makeSidebarHeader creates a consistent sidebar section header with
-// transparent bg so it inherits @surface from the parent panel.
 func (a *App) makeSidebarHeader(title string, extra gtk.Widgetter) *gtk.Box {
 	box := gtk.NewBox(gtk.OrientationHorizontal, 0)
 	box.AddCSSClass("sidebar-section")
@@ -1248,8 +1311,6 @@ func (a *App) makeSidebarHeader(title string, extra gtk.Widgetter) *gtk.Box {
 	}
 	return box
 }
-
-// ── Content area ──────────────────────────────────────────────────
 
 func (a *App) buildContentArea() *gtk.Box {
 	box := gtk.NewBox(gtk.OrientationVertical, 0)
@@ -1277,13 +1338,12 @@ func (a *App) buildContentArea() *gtk.Box {
 	a.infoLabel = gtk.NewLabel("")
 	a.infoLabel.SetXAlign(1)
 	a.infoLabel.AddCSSClass("dim")
-	a.infoLabel.SetEllipsize(3)      // EllipsizeEnd
-	a.infoLabel.SetMaxWidthChars(60) // Prevent it from pushing everything
+	a.infoLabel.SetEllipsize(3)
+	a.infoLabel.SetMaxWidthChars(60)
 	infoBar.Append(a.infoLabel)
 
 	box.Append(infoBar)
 
-	// Tab switcher
 	switcher := gtk.NewStackSwitcher()
 	box.Append(switcher)
 
@@ -1326,7 +1386,6 @@ func (a *App) buildLogAndDiff() *gtk.Paned {
 	diffContainer := gtk.NewBox(gtk.OrientationVertical, 0)
 	diffContainer.AddCSSClass("diff-area")
 
-	// Diff Toolbar
 	diffToolbar := gtk.NewBox(gtk.OrientationHorizontal, 0)
 	diffToolbar.AddCSSClass("diff-toolbar")
 
@@ -1380,12 +1439,10 @@ func (a *App) buildLogAndDiff() *gtk.Paned {
 
 	diffContainer.Append(diffToolbar)
 
-	// structured header
 	a.commitHeader = gtk.NewBox(gtk.OrientationVertical, 0)
 	a.commitHeader.SetVisible(false)
 	a.commitHeader.AddCSSClass("commit-details-table")
 
-	// Row 1: Author & Hash
 	row1 := gtk.NewBox(gtk.OrientationHorizontal, 0)
 	row1.AddCSSClass("commit-details-row")
 	a.commitAuthor = gtk.NewLabel("")
@@ -1404,7 +1461,6 @@ func (a *App) buildLogAndDiff() *gtk.Paned {
 	a.commitHeader.Append(row1)
 	a.commitHeader.Append(gtk.NewSeparator(gtk.OrientationHorizontal))
 
-	// Row 2: Date
 	row2 := gtk.NewBox(gtk.OrientationHorizontal, 0)
 	row2.AddCSSClass("commit-details-row")
 	a.commitDateFull = gtk.NewLabel("")
@@ -1414,7 +1470,6 @@ func (a *App) buildLogAndDiff() *gtk.Paned {
 	a.commitHeader.Append(row2)
 	a.commitHeader.Append(gtk.NewSeparator(gtk.OrientationHorizontal))
 
-	// Row 3: Subject
 	row3 := gtk.NewBox(gtk.OrientationHorizontal, 0)
 	row3.AddCSSClass("commit-details-row")
 	a.commitSubjectBold = gtk.NewLabel("")
@@ -1427,14 +1482,12 @@ func (a *App) buildLogAndDiff() *gtk.Paned {
 
 	diffContainer.Append(a.commitHeader)
 
-	// Unified View - now a box of expanders
-	a.diffBuf = gtk.NewTextBuffer(nil) // For single-file diffs or empty states
+	a.diffBuf = gtk.NewTextBuffer(nil)
 	a.diffView = gtk.NewBox(gtk.OrientationVertical, 0)
 	a.diffView.SetHExpand(true)
 	a.diffView.AddCSSClass("diff-view-container")
 	diffContainer.Append(a.diffView)
 
-	// Split View
 	a.splitView = gtk.NewBox(gtk.OrientationHorizontal, 0)
 	a.splitView.SetVisible(false)
 	a.splitView.SetHExpand(true)
@@ -1501,8 +1554,6 @@ func (a *App) buildBranchesView() *gtk.Box {
 	return box
 }
 
-// ── Commit strip ──────────────────────────────────────────────────
-
 func (a *App) buildCommitStrip() *gtk.Box {
 	box := gtk.NewBox(gtk.OrientationHorizontal, 8)
 	box.AddCSSClass("commit-strip")
@@ -1542,8 +1593,6 @@ func (a *App) buildCommitStrip() *gtk.Box {
 	return box
 }
 
-// ── Status strip ──────────────────────────────────────────────────
-
 func (a *App) buildStatusStrip() *gtk.Box {
 	box := gtk.NewBox(gtk.OrientationHorizontal, 0)
 	box.AddCSSClass("status-strip")
@@ -1566,8 +1615,6 @@ func (a *App) buildStatusStrip() *gtk.Box {
 	box.Append(spacer)
 	return box
 }
-
-// ── Info helpers ──────────────────────────────────────────────────
 
 func (a *App) setInfo(t string) {
 	if a.infoLabel == nil {
@@ -1615,8 +1662,6 @@ func (a *App) doReload(showDefault bool) {
 		a.reloadState(showDefault)
 	}
 }
-
-// ── Repo list ─────────────────────────────────────────────────────
 
 func (a *App) populateRepos() {
 	clearListBox(a.repoListBox)
@@ -1674,8 +1719,6 @@ func (a *App) selectRepo(path string) {
 	}
 	a.doReload(true)
 }
-
-// ── State ─────────────────────────────────────────────────────────
 
 func (a *App) reloadStateAsync(showDefault bool) {
 	if a.selectedRepoPath == "" {
@@ -1758,7 +1801,9 @@ func (a *App) applyState(ns *RepoState, showDefault bool) {
 	}
 
 	if IsConflicted(a.state.Path) {
-		a.openConflictPanel()
+		if !a.conflictPanelOpen {
+			a.openConflictPanel()
+		}
 	}
 
 	a.updateCommitButton()
@@ -1820,10 +1865,7 @@ func (a *App) stashesChanged(ns []StashEntry) bool {
 	return false
 }
 
-// ── Branch dropdown ───────────────────────────────────────────────
-
 func (a *App) bindBranchDrop() {
-    // This now only handles the initial signal connection
     if a.branchDropBound {
         return
     }
@@ -1844,7 +1886,6 @@ func (a *App) bindBranchDrop() {
             return
         }
         
-        // Get the string value from the model
         stringList := modelObj.Cast().(*gtk.StringList)
         target := stringList.String(sel)
 
@@ -1863,7 +1904,6 @@ func (a *App) syncBranchDrop() {
         return
     }
 
-    // 1. Collect local branches
     var localNames []string
     var curIdx uint = 0
     found := false
@@ -1878,11 +1918,8 @@ func (a *App) syncBranchDrop() {
         }
     }
 
-    // 2. Update the model only if the list of names changed
-    // (This prevents the dropdown from closing/flickering if it's open)
     a.branchDropUpdating = true
     
-    // Simple check: does the current model match our localNames?
     shouldUpdateModel := true
     if currentModel := a.branchDrop.Model(); currentModel != nil {
         sl := currentModel.Cast().(*gtk.StringList)
@@ -1904,21 +1941,16 @@ func (a *App) syncBranchDrop() {
         a.branchDrop.SetModel(gtk.NewStringList(localNames))
     }
 
-    // 3. Sync the selection
     if found {
         a.branchDrop.SetSelected(curIdx)
     }
 
-    // 4. Release guard
     glib.IdleAdd(func() {
         a.branchDropUpdating = false
     })
     
-    // Ensure signals are bound
     a.bindBranchDrop()
 }
-
-// ── File list ─────────────────────────────────────────────────────
 
 func (a *App) populateFiles() {
 	clearListBox(a.fileListBox)
@@ -1944,7 +1976,6 @@ func (a *App) populateFiles() {
 		a.appendFileSection("Changes", unstaged, false)
 	}
 
-	// Add Ignored Section
 	ignored := GetIgnoredFiles(a.state.Path)
 	if len(ignored) > 0 {
 		a.appendIgnoredSection(ignored)
@@ -2049,7 +2080,6 @@ func (a *App) showFileContextMenu(relativeTo gtk.Widgetter, f FileStatus, staged
 }
 
 func (a *App) appendFileSection(title string, files []FileStatus, staged bool) {
-	// Section header row — class on the ROW so GTK's bg override is caught
 	hdrRow := gtk.NewListBoxRow()
 	hdrRow.SetSelectable(false)
 	hdrRow.AddCSSClass("section-header")
@@ -2101,7 +2131,6 @@ func (a *App) appendFileSection(title string, files []FileStatus, staged bool) {
 		name.SetXAlign(0)
 		name.SetEllipsize(3)
 
-		// Stage/unstage toggle
 		toggleLabel := "+"
 		if staged {
 			toggleLabel = "−"
@@ -2134,7 +2163,7 @@ func (a *App) appendFileSection(title string, files []FileStatus, staged bool) {
 		click := gtk.NewGestureClick()
 		click.SetButton(0)
 		click.ConnectReleased(func(n int, x, y float64) {
-			if click.CurrentButton() == 3 { // Right click
+			if click.CurrentButton() == 3 {
 		        a.showFileContextMenu(row, f, staged)
 		    } else {
 				if a.state == nil {
@@ -2152,8 +2181,6 @@ func (a *App) appendFileSection(title string, files []FileStatus, staged bool) {
 	}
 }
 
-// ── Commit list ───────────────────────────────────────────────────
-
 func (a *App) populateCommits() {
 	clearListBox(a.commitListBox)
 	a.selectedCommitRow = nil
@@ -2165,7 +2192,6 @@ func (a *App) populateCommits() {
 	filter := strings.ToLower(strings.TrimSpace(a.searchEntry.Text()))
 	count := 0
 
-	// Pre-calculate graph info if no filter is applied
 	var graphInfos []CommitGraphInfo
 	if filter == "" {
 		graphInfos = ComputeGraphInfo(a.state.Commits)
@@ -2260,7 +2286,6 @@ func (a *App) populateCommits() {
 		})
 		row.AddController(click)
 
-		// Right-click context menu
 		rightClick := gtk.NewGestureClick()
 		rightClick.SetButton(3)
 		rightClick.ConnectReleased(func(_ int, x, y float64) {
@@ -2268,10 +2293,8 @@ func (a *App) populateCommits() {
 		})
 		row.AddController(rightClick)
 
-		// Drag and Drop for Rebase
 		src := gtk.NewDragSource()
 		src.ConnectDragBegin(func(_ gdk.Dragger) {
-			// Mark as dragging
 		})
 		src.ConnectPrepare(func(_, _ float64) *gdk.ContentProvider {
 			return gdk.NewContentProviderForValue(glib.NewValue(c.Hash))
@@ -2437,8 +2460,6 @@ func (a *App) buildRefLabel(ref string) *gtk.Widget {
 	return &lbl.Widget
 }
 
-// ── Branch panel ──────────────────────────────────────────────────
-
 func (a *App) populateBranches() {
 	clearListBox(a.branchListBox)
 	if a.state == nil {
@@ -2552,7 +2573,6 @@ func (a *App) appendBranchSection(title string, branches []BranchInfo) {
 
 		if !b.Current && !b.IsRemote {
 			coBtn := gtk.NewButtonWithLabel("Checkout")
-
 			coBtn.AddCSSClass("flat") 
 			            
 			coBtn.ConnectClicked(func() {
@@ -2659,8 +2679,6 @@ func (a *App) appendBranchSection(title string, branches []BranchInfo) {
 	}
 }
 
-// ── Stash panel ───────────────────────────────────────────────────
-
 func (a *App) openStashPanel() {
 	if a.state == nil {
 		return
@@ -2668,7 +2686,6 @@ func (a *App) openStashPanel() {
 
 	content := gtk.NewBox(gtk.OrientationVertical, 0)
 
-	// Save row
 	saveBar := gtk.NewBox(gtk.OrientationHorizontal, 8)
 	saveBar.SetMarginTop(10)
 	saveBar.SetMarginBottom(10)
@@ -2763,7 +2780,6 @@ func (a *App) populateStashList() {
 		}
 		box.Append(info)
 
-		// Actions
 		viewBtn := gtk.NewButtonWithLabel("Diff")
 		viewBtn.AddCSSClass("flat")
 		viewBtn.ConnectClicked(func() {
@@ -2848,8 +2864,6 @@ func (a *App) populateStashList() {
 	}
 }
 
-// ── Repo config panel ─────────────────────────────────────────────
-
 func (a *App) openRepoConfigPanel() {
 	if a.state == nil || !a.cfg.Features.RepoConfigDialog {
 		return
@@ -2857,7 +2871,6 @@ func (a *App) openRepoConfigPanel() {
 
 	content := gtk.NewBox(gtk.OrientationVertical, 0)
 
-	// Repo info
 	infoBox := gtk.NewBox(gtk.OrientationVertical, 4)
 	infoBox.SetMarginTop(12)
 	infoBox.SetMarginBottom(10)
@@ -2997,7 +3010,6 @@ func (a *App) openRepoConfigPanel() {
 		}
 	}
 
-	// Add remote
 	addBar := gtk.NewBox(gtk.OrientationHorizontal, 8)
 	addBar.SetMarginTop(8)
 	addBar.SetMarginBottom(8)
@@ -3040,8 +3052,6 @@ func (a *App) openRepoConfigPanel() {
 	a.showOverlay(card)
 }
 
-// ── New branch dialog ─────────────────────────────────────────────
-
 func (a *App) openNewBranchDialog() {
 	if a.state == nil {
 		return
@@ -3082,8 +3092,6 @@ func (a *App) openNewBranchDialog() {
 	a.showOverlay(card)
 }
 
-// ── Header info ───────────────────────────────────────────────────
-
 func (a *App) updateHeaderInfo() {
 	if a.state == nil {
 		a.repoTitle.SetText("")
@@ -3094,12 +3102,10 @@ func (a *App) updateHeaderInfo() {
 	a.repoTitle.SetText(a.state.Name)
 	a.repoPath.SetText(a.state.Path)
 
-	// Show HEAD jump button when in detached HEAD state
 	if a.headJumpBtn != nil {
 		detached := strings.HasPrefix(a.state.Branch, "(detached")
 		if detached {
 			shortHash := a.state.Branch
-			// Extract hash from "(detached at abc1234)"
 			if idx := strings.LastIndex(shortHash, " "); idx >= 0 {
 				shortHash = strings.TrimSuffix(shortHash[idx+1:], ")")
 			}
@@ -3205,8 +3211,6 @@ func (a *App) updateCommitButton() {
 	a.commitButton.SetSensitive(msg != "" && hasStaged)
 }
 
-// ── Diff ──────────────────────────────────────────────────────────
-
 func (a *App) renderDiff(diff string) {
 	if a.showSplit {
 		a.diffView.SetVisible(false)
@@ -3225,8 +3229,6 @@ func (a *App) toggleAllDiffs(expand bool) {
 		if exp, ok := child.(*gtk.Expander); ok {
 			exp.SetExpanded(expand)
 		}
-		// In gotk4, to get NextSibling we might need to cast to *gtk.Widget
-		// depending on how it's wrapped.
 		if w, ok := child.(interface{ NextSibling() gtk.Widgetter }); ok {
 			child = w.NextSibling()
 		} else {
@@ -3236,7 +3238,6 @@ func (a *App) toggleAllDiffs(expand bool) {
 }
 
 func (a *App) renderUnifiedDiff(diff string) {
-	// Clear existing widgets from diffView box
 	for {
 		child := a.diffView.FirstChild()
 		if child == nil {
@@ -3262,11 +3263,9 @@ func (a *App) renderUnifiedDiff(diff string) {
 		return
 	}
 
-	// Split by file
 	files := a.splitDiffByFile(diff)
 
 	if len(files) == 1 && files[0].Path == "" {
-		// Generic diff (e.g. Loading...)
 		buf := gtk.NewTextBuffer(nil)
 		a.setupDiffTags(buf)
 		a.appendDiffToBuffer(buf, files[0].Content)
@@ -3300,7 +3299,6 @@ func (a *App) renderUnifiedDiff(diff string) {
 		a.diffView.Append(exp)
 	}
 
-	// Reset scroll to top
 	vadj := a.diffScroll.VAdjustment()
 	if vadj != nil {
 		vadj.SetValue(0)
@@ -3331,7 +3329,6 @@ func (a *App) splitDiffByFile(diff string) []fileDiff {
 		} else if currentFile != nil {
 			currentFile.Content += line + "\n"
 		} else {
-			// Pre-header content
 			currentFile = &fileDiff{Path: "", Content: line + "\n"}
 		}
 	}
@@ -3503,7 +3500,6 @@ func (a *App) loadCommitDiff(hash string) {
 		a.copyHashBtn.SetVisible(true)
 	}
 
-	// Find the commit in state to populate header
 	var commit *Commit
 	for i := range a.state.Commits {
 		if a.state.Commits[i].Hash == hash {
@@ -3536,8 +3532,6 @@ func (a *App) loadCommitDiff(hash string) {
 		})
 	}()
 }
-
-// ── Utilities ─────────────────────────────────────────────────────
 
 func (a *App) markSelectedRow(list *gtk.ListBox, row *gtk.ListBoxRow) {
 	if list == a.fileListBox {
@@ -3611,6 +3605,5 @@ func gitCmd2(repoPath string, args ...string) error {
 	return err
 }
 
-// Kept for backward compat
 func (a *App) openRepoConfigDialog() { a.openRepoConfigPanel() }
 func (a *App) populateStashes()      { a.populateStashList() }
