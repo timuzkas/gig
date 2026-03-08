@@ -1169,12 +1169,19 @@ func (a *App) jumpToHEAD() {
 	if a.hasUncommittedChanges() {
 		a.confirmDialog(
 			"Uncommitted Changes",
-			"You have uncommitted changes. Stash them before switching to HEAD?",
+			"You have uncommitted changes. Stash them before switching back to branch?",
 			false,
 			func() {
+				a.setInfo("Stashing changes…")
 				go func(repo string) {
-					_ = StashSave(repo, "Auto-stash before HEAD checkout")
-					glib.IdleAdd(func() { a.doCheckoutHEAD() })
+					err := StashSaveExt(repo, "Auto-stash before branch checkout", true)
+					glib.IdleAdd(func() {
+						if err != nil {
+							a.setInfoErr("Stash failed: " + err.Error())
+							return
+						}
+						a.doCheckoutHEAD()
+					})
 				}(a.state.Path)
 			},
 		)
@@ -1184,17 +1191,19 @@ func (a *App) jumpToHEAD() {
 }
 
 func (a *App) doCheckoutHEAD() {
-	a.setInfo("Jumping to HEAD…")
+	a.setInfo("Returning to branch…")
 	go func(repo string) {
-		err := Checkout(repo, "HEAD")
+		// Try to go back to the previous branch/state
+		err := gitCmd2(repo, "checkout", "-")
 		if err != nil {
-			err = gitCmd2(repo, "checkout", "-")
+			// Fallback to checking out HEAD (might not attach to branch though)
+			err = Checkout(repo, "HEAD")
 		}
 		glib.IdleAdd(func() {
 			if err != nil {
-				a.setInfoErr(err.Error())
+				a.setInfoErr("Checkout failed: " + err.Error())
 			} else {
-				a.setInfoOk("At HEAD")
+				a.setInfoOk("Returned to branch")
 			}
 			a.doReload(true)
 		})
@@ -2767,7 +2776,11 @@ func (a *App) populateStashList() {
 		box := gtk.NewBox(gtk.OrientationHorizontal, 10)
 		box.AddCSSClass("stash-row-box")
 
-		idx := gtk.NewLabel(s.Ref)
+		idxStr := s.Ref
+		if strings.HasPrefix(idxStr, "stash@{") && strings.HasSuffix(idxStr, "}") {
+			idxStr = idxStr[7 : len(idxStr)-1]
+		}
+		idx := gtk.NewLabel("[" + idxStr + "]")
 		idx.AddCSSClass("stash-index")
 		idx.SetXAlign(0)
 		idx.SetSizeRequest(90, -1)

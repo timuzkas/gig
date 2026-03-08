@@ -635,7 +635,14 @@ func GetStashes(repoPath string) []StashEntry {
 }
 
 func StashSave(repoPath, message string) error {
+	return StashSaveExt(repoPath, message, false)
+}
+
+func StashSaveExt(repoPath, message string, includeUntracked bool) error {
 	args := []string{"stash", "push"}
+	if includeUntracked {
+		args = append(args, "-u")
+	}
 	if message != "" {
 		args = append(args, "-m", message)
 	}

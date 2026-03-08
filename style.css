@@ -922,11 +922,11 @@ listbox row:selected *,
 .file-row.selected *,
 .commit-row.selected *,
 .repo-row.selected *,
-.file-row:hover *,
-.commit-row:hover *,
-.repo-row:hover *,
-.branch-row:hover *,
-.stash-row:hover * {
+.file-row:hover *:not(button),
+.commit-row:hover *:not(button),
+.repo-row:hover *:not(button),
+.branch-row:hover *:not(button),
+.stash-row:hover *:not(button) {
   background-color: transparent;
 }
 
