@@ -178,8 +178,6 @@ func (a *App) build() {
 }
 
 func (a *App) loadCSS() {
-	fmt.Println("=== LOADING CSS, length:", len(defaultCSS))
-	fmt.Println("=== FIRST 100 CHARS:", defaultCSS[:100])
 
 	display := gdk.DisplayGetDefault()
 	if display == nil {
@@ -211,7 +209,6 @@ window { background-color: @bg; }
 		a.cfg.Appearance.FontFamily, a.cfg.Appearance.FontSize,
 	)
 
-	// Replace the os.ReadFile block with this:
 	cssVars += defaultCSS
 
 	provider.LoadFromData(cssVars)
@@ -278,7 +275,7 @@ func (a *App) buildOverlayCard(title string, width int, content gtk.Widgetter, e
 
 	closeBtn := gtk.NewButtonWithLabel("✕")
 	closeBtn.AddCSSClass("flat")
-	closeBtn.AddCSSClass("overlay-close-btn") // Targeted in CSS
+	closeBtn.AddCSSClass("overlay-close-btn")
 	closeBtn.ConnectClicked(func() { a.hideOverlay() })
 	hdr.Append(closeBtn)
 	card.Append(hdr)
@@ -301,7 +298,6 @@ func (a *App) gitErrorDialog(title, errMsg string) {
 	intro := "An error occurred during git operation."
 	var files []string
 	
-	// Parse checkout/merge conflicts
 	if strings.Contains(errMsg, "overwritten by checkout") || strings.Contains(errMsg, "overwritten by merge") {
 		intro = "Local changes would be overwritten. Please commit or stash them:"
 		lines := strings.Split(errMsg, "\n")
@@ -386,7 +382,6 @@ func (a *App) gitErrorDialog(title, errMsg string) {
 	a.showOverlay(card)
 }
 
-// confirmDialog — replaces all gtk.Dialog destructive confirmations
 func (a *App) confirmDialog(title, body string, destructive bool, onConfirm func()) {
 	content := gtk.NewBox(gtk.OrientationVertical, 14)
 	content.SetMarginTop(16)
@@ -995,6 +990,11 @@ func (a *App) buildHeader() *gtk.HeaderBar {
 	// Branch dropdown — distinct bg from headerbar
 	a.branchDrop = gtk.NewDropDown(nil, nil)
 	a.branchDrop.SetSizeRequest(190, -1)
+
+	a.branchDrop.SetHExpand(false)
+	a.branchDrop.SetHAlign(gtk.AlignStart)
+	a.branchDrop.SetVAlign(gtk.AlignCenter)
+	
 	left.Append(a.branchDrop)
 
 	a.headJumpBtn = gtk.NewButtonWithLabel("")
@@ -1255,13 +1255,12 @@ func (a *App) buildContentArea() *gtk.Box {
 	box := gtk.NewBox(gtk.OrientationVertical, 0)
 	box.AddCSSClass("content-panel")
 
-	// Single-row compact info bar: [RepoName]  [path …]  [stats right-aligned]
 	infoBar := gtk.NewBox(gtk.OrientationHorizontal, 10)
 	infoBar.AddCSSClass("top-info-bar")
 	infoBar.SetMarginTop(7)
 	infoBar.SetMarginBottom(7)
-	infoBar.SetMarginStart(14)
-	infoBar.SetMarginEnd(14)
+	infoBar.SetMarginStart(0)
+	infoBar.SetMarginEnd(0)
 
 	a.repoTitle = gtk.NewLabel("")
 	a.repoTitle.SetXAlign(0)
@@ -2348,30 +2347,52 @@ func (a *App) showCommitContextMenu(relativeTo gtk.Widgetter, c Commit) {
 	box := gtk.NewBox(gtk.OrientationVertical, 0)
 
 	actions := []struct {
-		label string
-		fn    func()
+		label       string
+		destructive bool
+		fn          func()
 	}{
-		{"Checkout " + c.ShortHash, func() {
-			a.runGitOpSafe("Checking out...", "Checked out "+c.ShortHash, func(repo string) error {
-				return CheckoutCommit(repo, c.Hash)
-			})
+		{"Checkout " + c.ShortHash, false, func() {
+			a.runGitOpSafe(
+				"Checking out...",
+				"Checked out "+c.ShortHash,
+				func(repo string) error {
+					return CheckoutCommit(repo, c.Hash)
+				},
+			)
 		}},
-		{"Cherry-pick", func() {
-			a.runGitOpSafe("Cherry-picking...", "Cherry-picked "+c.ShortHash, func(repo string) error {
-				return CherryPickCommit(repo, c.Hash)
-			})
+		{"Cherry-pick", false, func() {
+			a.runGitOpSafe(
+				"Cherry-picking...",
+				"Cherry-picked "+c.ShortHash,
+				func(repo string) error {
+					return CherryPickCommit(repo, c.Hash)
+				},
+			)
 		}},
-		{"Reset Soft", func() {
-			a.runGitOpSafe("Resetting...", "Reset soft to "+c.ShortHash, func(repo string) error {
-				return ResetCommit(repo, c.Hash, false)
-			})
+		{"Reset Soft", false, func() {
+			a.runGitOpSafe(
+				"Resetting...",
+				"Reset soft to "+c.ShortHash,
+				func(repo string) error {
+					return ResetCommit(repo, c.Hash, false)
+				},
+			)
 		}},
-		{"Reset Hard", func() {
-			a.confirmDialog("Reset Hard", "This will discard ALL local changes permanently.", true, func() {
-				a.runGitOp("Resetting...", "Reset hard to "+c.ShortHash, func(repo string) error {
-					return ResetCommit(repo, c.Hash, true)
-				})
-			})
+		{"Reset Hard", true, func() {
+			a.confirmDialog(
+				"Reset Hard",
+				"This will discard ALL local changes permanently.",
+				true,
+				func() {
+					a.runGitOp(
+						"Resetting...",
+						"Reset hard to "+c.ShortHash,
+						func(repo string) error {
+							return ResetCommit(repo, c.Hash, true)
+						},
+					)
+				},
+			)
 		}},
 	}
 
@@ -2379,6 +2400,9 @@ func (a *App) showCommitContextMenu(relativeTo gtk.Widgetter, c Commit) {
 		act := act
 		btn := gtk.NewButtonWithLabel(act.label)
 		btn.AddCSSClass("flat")
+		if act.destructive {
+			btn.AddCSSClass("destructive-action")
+		}
 		btn.ConnectClicked(func() {
 			pop.Popdown()
 			act.fn()

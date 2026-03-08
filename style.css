@@ -7,7 +7,18 @@
   border-radius: 0;
   outline: none;
   box-shadow: none;
-  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+  transition:
+    background-color 50ms ease,
+    border-color 50ms ease,
+    color 50ms ease,
+    opacity 50ms ease;
+}
+
+*:focus,
+*:focus-visible,
+*:focus-within {
+  outline: none;
+  box-shadow: none;
 }
 
 window,
@@ -62,12 +73,132 @@ headerbar {
   min-height: 42px;
 }
 
+headerbar separator,
+.titlebar separator {
+  background-color: transparent;
+  background-image: none;
+  border: none;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+}
+
 windowcontrols {
   margin-left: 10px;
   margin-right: 10px;
 }
 
+headerbar menubutton button,
+.titlebar menubutton button {
+  background: transparent;
+  background-image: none;
+  border: none;
+  box-shadow: none;
+  color: @text_dim;
+  border-radius: 4px;
+  transition: all 200ms ease;
+}
 
+headerbar menubutton button label,
+headerbar menubutton button image,
+headerbar menubutton button arrow,
+.titlebar menubutton button label,
+.titlebar menubutton button image,
+.titlebar menubutton button arrow {
+  background: transparent;
+  background-color: transparent;
+  color: inherit;
+}
+
+headerbar menubutton button:hover,
+.titlebar menubutton button:hover {
+  background: alpha(@accent, 0.12);
+  background-image: none;
+  color: @accent;
+}
+
+headerbar menubutton button:hover label,
+headerbar menubutton button:hover image,
+headerbar menubutton button:hover arrow,
+.titlebar menubutton button:hover label,
+.titlebar menubutton button:hover image,
+.titlebar menubutton button:hover arrow {
+  background: transparent;
+  background-color: transparent;
+  color: inherit;
+}
+
+headerbar menubutton button:checked,
+headerbar menubutton button:active,
+.titlebar menubutton button:checked,
+.titlebar menubutton button:active {
+  background: alpha(@accent, 0.15);
+  background-image: none;
+  color: @accent;
+}
+
+headerbar menubutton button:checked label,
+headerbar menubutton button:checked image,
+headerbar menubutton button:checked arrow,
+headerbar menubutton button:active label,
+headerbar menubutton button:active image,
+headerbar menubutton button:active arrow,
+.titlebar menubutton button:checked label,
+.titlebar menubutton button:checked image,
+.titlebar menubutton button:checked arrow,
+.titlebar menubutton button:active label,
+.titlebar menubutton button:active image,
+.titlebar menubutton button:active arrow {
+  background: transparent;
+  background-color: transparent;
+  color: inherit;
+}
+
+headerbar button,
+headerbar button *,
+headerbar menubutton,
+headerbar menubutton *,
+.titlebar button,
+.titlebar button *,
+.titlebar menubutton,
+.titlebar menubutton *,
+  transition:
+    background-color 50ms ease,
+    border-color 50ms ease,
+    color 50ms ease,
+    opacity 50ms ease;
+}
+
+headerbar button:hover *,
+headerbar menubutton button:hover *,
+.titlebar menubutton button:hover *,
+  background-color: transparent;
+  background-image: none;
+  color: inherit;
+}
+
+headerbar button:active *,
+headerbar menubutton button:active *,
+headerbar menubutton button:checked *,
+.titlebar button:active *,
+.titlebar menubutton button:active *,
+.titlebar menubutton button:checked *,
+  background-color: transparent;
+  background-image: none;
+  color: inherit;
+}
+
+headerbar combobox button,
+headerbar menubutton button,
+.titlebar combobox button,
+.titlebar menubutton button {
+  color: @text_dim;
+  background: transparent;
+  background-image: none;
+  transition: all 200ms ease;
+}
 
 headerbar windowcontrols button.close,
 headerbar windowcontrols button.titlebutton.close,
@@ -83,6 +214,7 @@ headerbar windowcontrols button.titlebutton.close,
   margin: 0 0 0 6px;
   border-radius: 4px;
   color: @text_dim;
+  transition: all 200ms ease;
 }
 
 headerbar windowcontrols button.close,
@@ -99,8 +231,6 @@ headerbar windowcontrols button.titlebutton.close:active,
 .titlebar windowcontrols button.titlebutton.close:active {
   min-width: 28px;
   min-height: 28px;
-  max-width: 28px;
-  max-height: 28px;
 }
 
 headerbar windowcontrols button.close image,
@@ -146,6 +276,16 @@ headerbar windowcontrols button.titlebutton.close:active,
   color: @removed;
 }
 
+popover.background > contents row:hover *,
+popover.background > contents listview row:hover *,
+popover.background > contents listbox row:hover *,
+popover.background > contents button:hover *,
+popover.background > contents button.flat:hover * {
+  background-color: transparent;
+  background-image: none;
+  color: inherit;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    BUTTONS
    ═══════════════════════════════════════════════════════════════ */
@@ -174,7 +314,9 @@ button:hover {
   color: @accent;
 }
 
-button:hover label { color: inherit; }
+button:hover label {
+  color: inherit;
+}
 
 button:active {
   background-color: alpha(@accent, 0.20);
@@ -258,8 +400,12 @@ button.suggested-action:backdrop {
   border: 1px solid @accent;
   box-shadow: none;
 }
-button.suggested-action:hover  { filter: brightness(1.10); }
-button.suggested-action:active { filter: brightness(0.90); }
+button.suggested-action:hover {
+  filter: brightness(1.10);
+}
+button.suggested-action:active {
+  filter: brightness(0.90);
+}
 button.suggested-action:disabled {
   background: alpha(@accent, 0.20);
   color: alpha(@bg, 0.50);
@@ -276,8 +422,13 @@ button.commit-button-custom {
   font-weight: 700;
   min-height: 32px;
 }
-button.commit-button-custom:hover    { filter: brightness(1.10); }
-button.commit-button-custom:disabled { opacity: 0.5; filter: grayscale(1); }
+button.commit-button-custom:hover {
+  filter: brightness(1.10);
+}
+button.commit-button-custom:disabled {
+  opacity: 0.5;
+  filter: grayscale(1);
+}
 
 /* Destructive */
 button.destructive-action {
@@ -295,7 +446,120 @@ button.destructive-action:hover {
 /* ═══════════════════════════════════════════════════════════════
    BRANCH DROPDOWN
    ═══════════════════════════════════════════════════════════════ */
-dropdown {
+dropdown,
+dropdown:hover,
+dropdown:active,
+dropdown:checked,
+dropdown:backdrop {
+  background-color: transparent;
+  background-image: none;
+  border-radius: 0px;
+  border: none;
+  box-shadow: none;
+  color: @text;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+}
+
+dropdown > button,
+dropdown > button.toggle,
+dropdown button {
+  background-color: @bg;
+  background-image: none;
+  color: @text;
+  border: 1px solid @border;
+  border-radius: 0px;
+  box-shadow: none;
+  min-height: 28px;
+  min-width: 100px;
+  margin: 0;
+  padding: 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+dropdown > button > box,
+dropdown > button.toggle > box,
+dropdown button > box {
+  min-height: 28px;
+  margin: 0;
+  padding: 0;
+}
+
+dropdown label,
+dropdown image,
+dropdown arrow,
+dropdown box,
+dropdown > button > box > *,
+dropdown > button.toggle > box > *,
+dropdown button > box > * {
+  background-color: transparent;
+  background-image: none;
+  color: inherit;
+}
+
+dropdown > button:hover,
+dropdown > button.toggle:hover,
+dropdown button:hover {
+  background-color: alpha(@accent, 0.12);
+  background-image: none;
+  border-color: alpha(@accent, 0.55);
+  color: @accent;
+}
+
+dropdown > button:active,
+dropdown > button:checked,
+dropdown > button.toggle:active,
+dropdown > button.toggle:checked,
+dropdown button:active,
+dropdown button:checked {
+  background-color: alpha(@accent, 0.20);
+  background-image: none;
+  border-color: alpha(@accent, 0.65);
+  color: @accent;
+}
+
+dropdown > button:hover *,
+dropdown > button.toggle:hover *,
+dropdown button:hover *,
+dropdown > button:active *,
+dropdown > button:checked *,
+dropdown > button.toggle:active *,
+dropdown > button.toggle:checked *,
+dropdown button:active *,
+dropdown button:checked * {
+  background-color: transparent;
+  background-image: none;
+  color: inherit;
+}
+
+headerbar dropdown,
+headerbar dropdown:hover,
+headerbar dropdown:active,
+headerbar dropdown:checked,
+headerbar dropdown:backdrop,
+.titlebar dropdown,
+.titlebar dropdown:hover,
+.titlebar dropdown:active,
+.titlebar dropdown:checked,
+.titlebar dropdown:backdrop {
+  background-color: transparent;
+  background-image: none;
+  border: none;
+  box-shadow: none;
+  color: @text;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+}
+
+headerbar dropdown > button,
+headerbar dropdown > button.toggle,
+headerbar dropdown button,
+.titlebar dropdown > button,
+.titlebar dropdown > button.toggle,
+.titlebar dropdown button {
   background-color: @bg;
   background-image: none;
   color: @text;
@@ -303,44 +567,70 @@ dropdown {
   border-radius: 4px;
   box-shadow: none;
   min-height: 28px;
-  min-width: 100px;
-  padding: 0 8px;
-  font-size: 13px;
-  font-weight: 600;
-  margin-left: 0;
+  margin: 0;
+  padding: 0 10px;
 }
 
-dropdown:hover {
+headerbar dropdown > button > box,
+headerbar dropdown > button.toggle > box,
+headerbar dropdown button > box,
+.titlebar dropdown > button > box,
+.titlebar dropdown > button.toggle > box,
+.titlebar dropdown button > box {
+  min-height: 28px;
+  margin: 0;
+  padding: 0;
+}
+
+headerbar dropdown > button:hover,
+headerbar dropdown > button.toggle:hover,
+headerbar dropdown button:hover,
+.titlebar dropdown > button:hover,
+.titlebar dropdown > button.toggle:hover,
+.titlebar dropdown button:hover {
   background-color: alpha(@accent, 0.12);
   background-image: none;
   border-color: alpha(@accent, 0.55);
   color: @accent;
 }
 
-headerbar separator,
-.titlebar separator {
-  background-color: transparent;
+headerbar dropdown > button:active,
+headerbar dropdown > button:checked,
+headerbar dropdown > button.toggle:active,
+headerbar dropdown > button.toggle:checked,
+headerbar dropdown button:active,
+headerbar dropdown button:checked,
+.titlebar dropdown > button:active,
+.titlebar dropdown > button:checked,
+.titlebar dropdown > button.toggle:active,
+.titlebar dropdown > button.toggle:checked,
+.titlebar dropdown button:active,
+.titlebar dropdown button:checked {
+  background-color: alpha(@accent, 0.20);
   background-image: none;
-  border: none;
-  min-width: 0;
-  min-height: 0;
-  margin: 0;
-  padding: 0;
-  opacity: 0;
+  border-color: alpha(@accent, 0.65);
+  color: @accent;
 }
 
-dropdown > button,
-dropdown button,
-dropdown > button:hover,
-dropdown button:hover {
+headerbar dropdown label,
+headerbar dropdown image,
+headerbar dropdown arrow,
+headerbar dropdown box,
+headerbar dropdown > button > box > *,
+headerbar dropdown > button.toggle > box > *,
+headerbar dropdown button > box > *,
+.titlebar dropdown label,
+.titlebar dropdown image,
+.titlebar dropdown arrow,
+.titlebar dropdown box,
+.titlebar dropdown > button > box > *,
+.titlebar dropdown > button.toggle > box > *,
+.titlebar dropdown button > box > * {
   background-color: transparent;
   background-image: none;
-  border: none;
-  box-shadow: none;
   color: inherit;
-  min-height: 0;
-  padding: 0;
 }
+
 
 /* ═══════════════════════════════════════════════════════════════
    TEXT INPUTS
@@ -362,6 +652,8 @@ searchentry {
 entry:focus,
 searchentry:focus {
   border-color: alpha(@accent, 0.65);
+  outline: none;
+  box-shadow: none;
 }
 
 entry selection,
@@ -397,6 +689,7 @@ popover.background:checked,
 popover.background:backdrop {
   background-color: transparent;
   background-image: none;
+  box-shadow: none;
   padding: 0;
 }
 
@@ -413,8 +706,8 @@ popover.background > contents:hover {
   color: @text;
   border: 1px solid @border;
   border-radius: 6px;
-  padding: 4px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.85);
+  padding: 2px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.85);
 }
 
 popover.background > arrow,
@@ -430,16 +723,81 @@ popover.background > arrow:hover {
   border-color: @border;
 }
 
+popover.background > contents *,
 popover.background > contents box,
+popover.background > contents row,
 popover.background > contents list,
 popover.background > contents listbox,
 popover.background > contents listview,
+popover.background > contents viewport,
 popover.background > contents stack,
+popover.background > contents scrolledwindow,
+popover.background > contents revealer {
+  background-color: transparent;
+  background-image: none;
+  color: @text;
+}
+
+popover.background > contents list,
+popover.background > contents listbox,
+popover.background > contents listview,
 popover.background > contents viewport,
 popover.background > contents scrolledwindow {
   background-color: @surface;
+}
+
+popover.background > contents row,
+popover.background > contents listview row,
+popover.background > contents listbox row {
+  background-color: transparent;
   background-image: none;
   color: @text;
+  min-height: 26px;
+  margin: 0;
+  padding: 0;
+}
+
+popover.background > contents row:hover,
+popover.background > contents listview row:hover,
+popover.background > contents listbox row:hover {
+  background-color: alpha(@accent, 0.12);
+  color: @accent;
+}
+
+popover.background > contents row:selected,
+popover.background > contents row:checked,
+popover.background > contents listview row:selected,
+popover.background > contents listbox row:selected {
+  background-color: transparent;
+  background-image: none;
+  color: @accent;
+}
+
+popover.background > contents row:selected:hover,
+popover.background > contents row:checked:hover,
+popover.background > contents listview row:selected:hover,
+popover.background > contents listbox row:selected:hover {
+  background-color: transparent;
+  background-image: none;
+  color: @accent;
+}
+
+popover.background > contents row > box,
+popover.background > contents listview row > box,
+popover.background > contents listbox row > box,
+popover.background > contents row label,
+popover.background > contents listview row label,
+popover.background > contents listbox row label,
+popover.background > contents row image,
+popover.background > contents listview row image,
+popover.background > contents listbox row image,
+popover.background > contents check,
+popover.background > contents checkbutton,
+popover.background > contents radio,
+popover.background > contents radiobutton {
+  background-color: transparent;
+  background-image: none;
+  color: inherit;
 }
 
 popover.background > contents button,
@@ -457,6 +815,7 @@ popover.background > contents button.flat {
 popover.background > contents button:hover,
 popover.background > contents button.flat:hover {
   background-color: alpha(@accent, 0.14);
+  background-image: none;
   color: @accent;
 }
 
@@ -466,31 +825,37 @@ popover.background > contents button.destructive-action {
 
 popover.background > contents button.destructive-action:hover {
   background-color: alpha(@removed, 0.12);
+  background-image: none;
   color: @removed;
 }
 
-popover.background > contents listview row,
-popover.background > contents listbox row {
+popover.background > contents row:selected *,
+popover.background > contents row:checked *,
+popover.background > contents listview row:selected *,
+popover.background > contents listbox row:selected *,
+popover.background > contents row:selected label,
+popover.background > contents row:checked label,
+popover.background > contents listview row:selected label,
+popover.background > contents listbox row:selected label,
+popover.background > contents row:selected image,
+popover.background > contents row:checked image,
+popover.background > contents listview row:selected image,
+popover.background > contents listbox row:selected image,
+popover.background > contents row:selected box,
+popover.background > contents row:checked box,
+popover.background > contents listview row:selected box,
+popover.background > contents listbox row:selected box {
   background-color: transparent;
-  color: @text;
-}
-
-popover.background > contents listview row:hover,
-popover.background > contents listbox row:hover {
-  background-color: alpha(@accent, 0.12);
-  color: @accent;
-}
-
-popover.background > contents listview row:selected,
-popover.background > contents listbox row:selected {
-  background-color: alpha(@accent, 0.18);
-  color: @accent;
+  background-image: none;
+  color: inherit;
 }
 
 /* ═══════════════════════════════════════════════════════════════
    SCROLLBARS
    ═══════════════════════════════════════════════════════════════ */
-scrollbar { background-color: transparent; }
+scrollbar {
+  background-color: transparent;
+}
 
 scrollbar slider {
   background-color: alpha(@text_dim, 0.14);
@@ -519,7 +884,9 @@ paned > separator {
   min-width: 1px;
   min-height: 1px;
 }
-paned > separator:hover { background-color: alpha(@accent, 0.4); }
+paned > separator:hover {
+  background-color: alpha(@accent, 0.4);
+}
 
 /* ═══════════════════════════════════════════════════════════════
    STACK SWITCHER (tabs)
@@ -641,6 +1008,8 @@ listbox row:selected *,
   background-color: @surface;
   border-bottom: 1px solid @border;
   min-height: 34px;
+  padding-left: 14px;
+  padding-right: 14px;
 }
 
 .diff-area,
@@ -664,7 +1033,9 @@ listbox row:selected *,
   border-radius: 0;
   border-right: 1px solid @border;
 }
-.diff-toggle-btn:hover { color: @text; }
+.diff-toggle-btn:hover {
+  color: @text;
+}
 
 .diff-empty-state {
   color: @text_dim;
@@ -711,7 +1082,9 @@ row.section-header > * {
   background-color: transparent;
 }
 
-row.section-header:hover { background-color: transparent; }
+row.section-header:hover {
+  background-color: transparent;
+}
 
 .section-label {
   color: @text_dim;
@@ -767,40 +1140,121 @@ row.section-header:hover { background-color: transparent; }
   background-color: transparent;
 }
 
-.repo-row:hover   { background-color: alpha(@accent, 0.07); border-left-color: alpha(@accent, 0.4); }
-.file-row:hover   { background-color: alpha(@accent, 0.07); }
-.commit-row:hover { background-color: alpha(@accent, 0.06); border-left-color: alpha(@accent, 0.3); }
-.branch-row:hover { background-color: alpha(@accent, 0.06); border-left-color: alpha(@accent, 0.3); }
-.stash-row:hover  { background-color: alpha(@modified, 0.07); border-left-color: alpha(@modified, 0.4); }
+.repo-row:hover {
+  background-color: alpha(@accent, 0.07);
+  border-left-color: alpha(@accent, 0.4);
+}
+.file-row:hover {
+  background-color: alpha(@accent, 0.07);
+}
+.commit-row:hover {
+  background-color: alpha(@accent, 0.06);
+  border-left-color: alpha(@accent, 0.3);
+}
+.branch-row:hover {
+  background-color: alpha(@accent, 0.06);
+  border-left-color: alpha(@accent, 0.3);
+}
+.stash-row:hover {
+  background-color: alpha(@modified, 0.07);
+  border-left-color: alpha(@modified, 0.4);
+}
 
-.repo-row.selected   { background-color: alpha(@accent, 0.11); border-left-color: @accent; }
-.file-row.selected   { background-color: @selection; }
-.commit-row.selected { background-color: @selection; border-left-color: @accent; }
-.branch-row.selected { background-color: alpha(@accent, 0.09); border-left-color: @accent; }
+.repo-row.selected {
+  background-color: alpha(@accent, 0.11);
+  border-left-color: @accent;
+}
+.file-row.selected {
+  background-color: @selection;
+}
+.commit-row.selected {
+  background-color: @selection;
+  border-left-color: @accent;
+}
+.branch-row.selected {
+  background-color: alpha(@accent, 0.09);
+  border-left-color: @accent;
+}
 
-.repo-row-box   { padding: 7px 12px 7px 10px; }
-.file-row-box   { padding: 4px 10px 4px 14px; }
-.commit-row-box { padding: 5px 12px 5px 10px; }
-.branch-row-box { padding: 8px 12px 8px 10px; }
-.stash-row-box  { padding: 7px 12px 7px 10px; }
+.repo-row-box {
+  padding: 7px 12px 7px 10px;
+}
+.file-row-box {
+  padding: 4px 10px 4px 14px;
+}
+.commit-row-box {
+  padding: 5px 12px 5px 10px;
+}
+.branch-row-box {
+  padding: 8px 12px 8px 10px;
+}
+.stash-row-box {
+  padding: 7px 12px 7px 10px;
+}
 
 /* ═══════════════════════════════════════════════════════════════
    TYPOGRAPHY
    ═══════════════════════════════════════════════════════════════ */
-.repo-name    { color: @text;     font-weight: 600; font-size: 13px; background-color: transparent; }
-.repo-path    { color: @text_dim; font-size: 11px;                   background-color: transparent; }
-.commit-hash  { color: @accent;   font-family: monospace; font-size: 12px; background-color: transparent; }
-.commit-meta  { color: @text_dim; font-size: 11px;                        background-color: transparent; }
-.dim          { color: @text_dim; background-color: transparent; }
-.empty        { color: @text_dim; font-size: 13px; letter-spacing: 0.06em; opacity: 0.50; }
+.repo-name {
+  color: @text;
+  font-weight: 600;
+  font-size: 13px;
+  background-color: transparent;
+}
+.repo-path {
+  color: @text_dim;
+  font-size: 11px;
+  background-color: transparent;
+}
+.commit-hash {
+  color: @accent;
+  font-family: monospace;
+  font-size: 12px;
+  background-color: transparent;
+}
+.commit-meta {
+  color: @text_dim;
+  font-size: 11px;
+  background-color: transparent;
+}
+.dim {
+  color: @text_dim;
+  background-color: transparent;
+}
+.empty {
+  color: @text_dim;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  opacity: 0.50;
+}
 
 /* ═══════════════════════════════════════════════════════════════
    STATUS MARKS
    ═══════════════════════════════════════════════════════════════ */
-.status-added    { color: @added;    font-weight: 700; font-size: 12px; background-color: transparent; }
-.status-modified { color: @modified; font-weight: 700; font-size: 12px; background-color: transparent; }
-.status-removed  { color: @removed;  font-weight: 700; font-size: 12px; background-color: transparent; }
-.status-unknown  { color: @text_dim; font-weight: 700; font-size: 12px; background-color: transparent; }
+.status-added {
+  color: @added;
+  font-weight: 700;
+  font-size: 12px;
+  background-color: transparent;
+}
+.status-modified {
+  color: @modified;
+  font-weight: 700;
+  font-size: 12px;
+  background-color: transparent;
+}
+.status-removed {
+  color: @removed;
+  font-weight: 700;
+  font-size: 12px;
+  background-color: transparent;
+}
+.status-unknown {
+  color: @text_dim;
+  font-weight: 700;
+  font-size: 12px;
+  background-color: transparent;
+}
 
 /* ═══════════════════════════════════════════════════════════════
    REF LABELS / BADGES
@@ -812,10 +1266,26 @@ row.section-header:hover { background-color: transparent; }
   padding: 1px 5px;
   margin: 0 2px;
 }
-.ref-head   { background-color: alpha(@accent, 0.16);   color: @accent;   border: 1px solid alpha(@accent, 0.42); }
-.ref-branch { background-color: alpha(@added, 0.13);    color: @added;    border: 1px solid alpha(@added, 0.32); }
-.ref-remote { background-color: alpha(#9a8fbe, 0.13);   color: #9a8fbe;   border: 1px solid alpha(#9a8fbe, 0.30); }
-.ref-tag    { background-color: alpha(@modified, 0.13); color: @modified; border: 1px solid alpha(@modified, 0.30); }
+.ref-head {
+  background-color: alpha(@accent, 0.16);
+  color: @accent;
+  border: 1px solid alpha(@accent, 0.42);
+}
+.ref-branch {
+  background-color: alpha(@added, 0.13);
+  color: @added;
+  border: 1px solid alpha(@added, 0.32);
+}
+.ref-remote {
+  background-color: alpha(#9a8fbe, 0.13);
+  color: #9a8fbe;
+  border: 1px solid alpha(#9a8fbe, 0.30);
+}
+.ref-tag {
+  background-color: alpha(@modified, 0.13);
+  color: @modified;
+  border: 1px solid alpha(@modified, 0.30);
+}
 
 .badge-current {
   font-size: 11px;
@@ -840,9 +1310,24 @@ row.section-header:hover { background-color: transparent; }
 /* ═══════════════════════════════════════════════════════════════
    STASH
    ═══════════════════════════════════════════════════════════════ */
-.stash-index { font-family: monospace; color: @modified; font-size: 12px; font-weight: 700; background-color: transparent; }
-.stash-msg   { font-weight: 500; font-size: 13px; color: @text; background-color: transparent; }
-.stash-meta  { font-size: 11px; color: @text_dim; background-color: transparent; }
+.stash-index {
+  font-family: monospace;
+  color: @modified;
+  font-size: 12px;
+  font-weight: 700;
+  background-color: transparent;
+}
+.stash-msg {
+  font-weight: 500;
+  font-size: 13px;
+  color: @text;
+  background-color: transparent;
+}
+.stash-meta {
+  font-size: 11px;
+  color: @text_dim;
+  background-color: transparent;
+}
 
 /* ═══════════════════════════════════════════════════════════════
    OVERLAY PANEL
@@ -850,7 +1335,7 @@ row.section-header:hover { background-color: transparent; }
 .overlay-panel {
   background-color: @surface;
   border: 1px solid @border;
-  box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
   border-radius: 8px;
 }
 
@@ -899,19 +1384,46 @@ row.section-header:hover { background-color: transparent; }
 /* ═══════════════════════════════════════════════════════════════
    FEEDBACK
    ═══════════════════════════════════════════════════════════════ */
-.info-ok  { color: @added;   background-color: transparent; }
-.info-err { color: @removed; background-color: transparent; }
+.info-ok {
+  color: @added;
+  background-color: transparent;
+}
+.info-err {
+  color: @removed;
+  background-color: transparent;
+}
 
 /* ═══════════════════════════════════════════════════════════════
    COMMIT DETAILS HEADER
    ═══════════════════════════════════════════════════════════════ */
-.commit-details-table           { background-color: @surface; }
-.commit-details-table separator { opacity: 0.4; }
-.commit-details-row             { padding: 10px 20px; }
-.commit-details-author          { font-size: 14px; font-weight: 500; color: @text; }
-.commit-details-hash            { font-family: monospace; font-size: 13px; color: alpha(@accent, 0.85); }
-.commit-details-date            { font-size: 12px; color: @text_dim; }
-.commit-details-subject         { font-size: 16px; font-weight: 700; color: @text; }
+.commit-details-table {
+  background-color: @surface;
+}
+.commit-details-table separator {
+  opacity: 0.4;
+}
+.commit-details-row {
+  padding: 10px 20px;
+}
+.commit-details-author {
+  font-size: 14px;
+  font-weight: 500;
+  color: @text;
+}
+.commit-details-hash {
+  font-family: monospace;
+  font-size: 13px;
+  color: alpha(@accent, 0.85);
+}
+.commit-details-date {
+  font-size: 12px;
+  color: @text_dim;
+}
+.commit-details-subject {
+  font-size: 16px;
+  font-weight: 700;
+  color: @text;
+}
 
 /* ═══════════════════════════════════════════════════════════════
    DIFF VIEWS
@@ -931,7 +1443,9 @@ textview > text,
   padding: 8px;
 }
 
-.diff-view-split:first-child { border-right: 1px solid @border; }
+.diff-view-split:first-child {
+  border-right: 1px solid @border;
+}
 
 .diff-file-expander {
   margin: 0;
@@ -956,7 +1470,8 @@ textview > text,
 }
 
 .diff-file-expander:focus-within {
-  outline: 1px solid alpha(@accent, 0.3);
+  outline: none;
+  box-shadow: none;
 }
 
 .diff-view-container textview {
@@ -983,18 +1498,38 @@ textview > text,
   background-color: transparent;
 }
 
-.conflict-ours-label        { color: @added; }
-.conflict-base-label        { color: @text_dim; }
-.conflict-theirs-label      { color: @removed; }
-.conflict-pane-label-resolution { color: @accent; }
+.conflict-ours-label {
+  color: @added;
+}
+.conflict-base-label {
+  color: @text_dim;
+}
+.conflict-theirs-label {
+  color: @removed;
+}
+.conflict-pane-label-resolution {
+  color: @accent;
+}
 
-.conflict-pane-res          { border-color: alpha(@accent, 0.5); }
+.conflict-pane-res {
+  border-color: alpha(@accent, 0.5);
+}
 
 .conflict-view,
-.conflict-res-view          { background-color: @bg; font-size: 13px; }
-.conflict-ours-view         { background-color: alpha(@added,   0.04); }
-.conflict-theirs-view       { background-color: alpha(@removed, 0.04); }
-.conflict-base-view         { background-color: alpha(@text_dim, 0.03); opacity: 0.8; }
+.conflict-res-view {
+  background-color: @bg;
+  font-size: 13px;
+}
+.conflict-ours-view {
+  background-color: alpha(@added, 0.04);
+}
+.conflict-theirs-view {
+  background-color: alpha(@removed, 0.04);
+}
+.conflict-base-view {
+  background-color: alpha(@text_dim, 0.03);
+  opacity: 0.8;
+}
 
 .conflict-nav-bar {
   background-color: @surface;
