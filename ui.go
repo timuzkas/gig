@@ -423,11 +423,12 @@ func (a *App) confirmDialog(title, body string, destructive bool, onConfirm func
 	btnRow := gtk.NewBox(gtk.OrientationHorizontal, 8)
 	btnRow.SetHAlign(gtk.AlignEnd)
 
-	cancelBtn := gtk.NewButtonWithLabel("Cancel")
+	cancelBtn := gtk.NewButtonWithLabel("Cancel [N]")
 	cancelBtn.ConnectClicked(func() { a.hideOverlay() })
 	btnRow.Append(cancelBtn)
 
-	okBtn := gtk.NewButtonWithLabel("Confirm")
+	okLabel := "Confirm [Y]"
+	okBtn := gtk.NewButtonWithLabel(okLabel)
 	if destructive {
 		okBtn.AddCSSClass("destructive-action")
 	} else {
@@ -441,6 +442,24 @@ func (a *App) confirmDialog(title, body string, destructive bool, onConfirm func
 	content.Append(btnRow)
 
 	card := a.buildOverlayCard(title, 380, content)
+
+	keyCtrl := gtk.NewEventControllerKey()
+	keyCtrl.ConnectKeyPressed(func(keyval uint, _ uint, state gdk.ModifierType) bool {
+		if state&(gdk.ControlMask|gdk.AltMask) != 0 {
+			return false
+		}
+		switch keyval {
+		case uint(gdk.KEY_y), uint(gdk.KEY_Y):
+			okBtn.Activate()
+			return true
+		case uint(gdk.KEY_n), uint(gdk.KEY_N):
+			cancelBtn.Activate()
+			return true
+		}
+		return false
+	})
+	card.AddController(keyCtrl)
+
 	a.showOverlay(card)
 }
 
@@ -465,16 +484,22 @@ func (a *App) promptDialog(title, placeholder, initial string, onOK func(string)
 
 	okBtn := gtk.NewButtonWithLabel("OK")
 	okBtn.AddCSSClass("suggested-action")
-	okBtn.ConnectClicked(func() {
+	onOKClick := func() {
 		val := strings.TrimSpace(entry.Text())
 		a.hideOverlay()
 		onOK(val)
-	})
+	}
+	okBtn.ConnectClicked(onOKClick)
+	entry.ConnectActivate(onOKClick)
 	btnRow.Append(okBtn)
 	content.Append(btnRow)
 
 	card := a.buildOverlayCard(title, 420, content)
 	a.showOverlay(card)
+
+	glib.IdleAdd(func() {
+		entry.GrabFocus()
+	})
 }
 
 func (a *App) openConflictPanel() {
@@ -3317,11 +3342,18 @@ func (a *App) setupHotkeys() {
 	keyController.SetPropagationPhase(gtk.PhaseCapture)
 	keyController.ConnectKeyPressed(func(keyval uint, _ uint, state gdk.ModifierType) bool {
 		if keyval == uint(gdk.KEY_Escape) {
-			a.hideOverlay()
-			return true
+			if a.overlayBox.Visible() {
+				a.hideOverlay()
+				return true
+			}
+			return false
 		}
 
 		match := func(accel string) bool {
+			if a.overlayBox.Visible() {
+				return false
+			}
+
 			kv, mods := parseAccel(accel)
 			if kv == 0 {
 				return false
@@ -3355,7 +3387,9 @@ func (a *App) setupHotkeys() {
 			return true
 		}
 		if match(a.cfg.Hotkeys.Commit) {
-			if a.commitButton.IsSensitive() {
+			if !a.commitEntry.HasFocus() {
+				a.commitEntry.GrabFocus()
+			} else if a.commitButton.IsSensitive() {
 				a.commitButton.Activate()
 			}
 			return true
