@@ -66,6 +66,7 @@ type App struct {
 	commitEntry  *gtk.Entry
 	commitButton   *gtk.Button
 	splitToggleBtn *gtk.Button
+	headJumpBtn    *gtk.Button
 
 	// Labels
 	repoTitle   *gtk.Label
@@ -445,12 +446,21 @@ func (a *App) buildHeader() *gtk.HeaderBar {
 	a.branchDrop.SetSizeRequest(190, -1)
 	left.Append(a.branchDrop)
 
+	a.headJumpBtn = gtk.NewButtonWithLabel("")
+	a.headJumpBtn.AddCSSClass("head-jump-btn")
+	a.headJumpBtn.SetVisible(false)
+	a.headJumpBtn.SetTooltipText("Not at HEAD — click to jump back")
+	a.headJumpBtn.ConnectClicked(func() {
+		a.jumpToHEAD()
+	})
+	left.Append(a.headJumpBtn)
+
 	for _, def := range []struct {
 		label, tooltip string
 		fn             func()
 	}{
 		{"↓ Fetch", "Fetch all remotes", func() { a.runGitOp("Fetching…", "Fetch complete", Fetch) }},
-		{"⇓ Pull", "Pull current branch", func() { a.runGitOp("Pulling…", "Pull complete", Pull) }},
+		{"⇓ Pull", "Pull current branch", func() { a.runGitOpSafe("Pulling…", "Pull complete", Pull) }},
 		{"⇑ Push", "Push current branch", func() { a.runGitOp("Pushing…", "Push complete", Push) }},
 		{"⊟ Stash", "Manage stashes", func() { a.openStashPanel() }},
 		{"⚙ Remotes", "Manage remotes", func() { a.openRepoConfigPanel() }},
@@ -498,6 +508,80 @@ func (a *App) runGitOp(startMsg, okMsg string, fn func(string) error) {
 			a.doReload(true)
 		})
 	}(a.state.Path)
+}
+
+func (a *App) runGitOpSafe(startMsg, okMsg string, fn func(string) error) {
+	if a.state == nil {
+		return
+	}
+	doIt := func() {
+		a.runGitOp(startMsg, okMsg, fn)
+	}
+	if a.hasUncommittedChanges() {
+		a.confirmDialog(
+			"Uncommitted Changes",
+			"You have uncommitted or staged changes. Continue anyway? (they may be lost)",
+			true,
+			doIt,
+		)
+		return
+	}
+	doIt()
+}
+
+func (a *App) jumpToHEAD() {
+	if a.state == nil {
+		return
+	}
+	// Check for uncommitted changes first
+	if a.hasUncommittedChanges() {
+		a.confirmDialog(
+			"Uncommitted Changes",
+			"You have uncommitted changes. Stash them before switching to HEAD?",
+			false,
+			func() {
+				go func(repo string) {
+					_ = StashSave(repo, "Auto-stash before HEAD checkout")
+					glib.IdleAdd(func() {
+						a.doCheckoutHEAD()
+					})
+				}(a.state.Path)
+			},
+		)
+		return
+	}
+	a.doCheckoutHEAD()
+}
+
+func (a *App) doCheckoutHEAD() {
+	a.setInfo("Jumping to HEAD…")
+	go func(repo string) {
+		err := Checkout(repo, "HEAD")
+		// If detached, checkout the branch instead
+		if err != nil {
+			err = gitCmd2(repo, "checkout", "-")
+		}
+		glib.IdleAdd(func() {
+			if err != nil {
+				a.setInfoErr(err.Error())
+			} else {
+				a.setInfoOk("At HEAD")
+			}
+			a.doReload(true)
+		})
+	}(a.state.Path)
+}
+
+func (a *App) hasUncommittedChanges() bool {
+	if a.state == nil {
+		return false
+	}
+	for _, f := range a.state.Files {
+		if f.Staged || f.WorkStatus != " " {
+			return true
+		}
+	}
+	return false
 }
 
 // ── Body layout ───────────────────────────────────────────────────
@@ -1181,19 +1265,9 @@ func (a *App) bindBranchDrop() {
             return
         }
 
-        a.setInfo("Switching to " + target + "…")
-        go func(repo, branch string) {
-            err := Checkout(repo, branch)
-            glib.IdleAdd(func() {
-                if err != nil {
-                    a.setInfoErr(err.Error())
-					a.gitErrorDialog("Checkout Failed", err.Error())
-                } else {
-                    a.setInfoOk("On " + branch)
-                }
-                a.doReload(true)
-            })
-        }(a.state.Path, target)
+        a.runGitOpSafe("Switching to "+target+"…", "On "+target, func(repo string) error {
+            return Checkout(repo, target)
+        })
     })
 }
 
@@ -1667,7 +1741,7 @@ func (a *App) showRebaseConfirmPopover(relativeTo gtk.Widgetter, srcHash, destHa
 	confirmBtn.AddCSSClass("suggested-action")
 	confirmBtn.ConnectClicked(func() {
 		pop.Popdown()
-		a.runGitOp("Rebasing...", "Rebase complete", func(repo string) error {
+		a.runGitOpSafe("Rebasing...", "Rebase complete", func(repo string) error {
 			return RebaseCommit(repo, destHash)
 		})
 	})
@@ -1690,23 +1764,25 @@ func (a *App) showCommitContextMenu(relativeTo gtk.Widgetter, c Commit) {
 		fn    func()
 	}{
 		{"Checkout " + c.ShortHash, func() {
-			a.runGitOp("Checking out...", "Checked out "+c.ShortHash, func(repo string) error {
+			a.runGitOpSafe("Checking out...", "Checked out "+c.ShortHash, func(repo string) error {
 				return CheckoutCommit(repo, c.Hash)
 			})
 		}},
 		{"Cherry-pick", func() {
-			a.runGitOp("Cherry-picking...", "Cherry-picked "+c.ShortHash, func(repo string) error {
+			a.runGitOpSafe("Cherry-picking...", "Cherry-picked "+c.ShortHash, func(repo string) error {
 				return CherryPickCommit(repo, c.Hash)
 			})
 		}},
 		{"Reset Soft", func() {
-			a.runGitOp("Resetting...", "Reset soft to "+c.ShortHash, func(repo string) error {
+			a.runGitOpSafe("Resetting...", "Reset soft to "+c.ShortHash, func(repo string) error {
 				return ResetCommit(repo, c.Hash, false)
 			})
 		}},
 		{"Reset Hard", func() {
-			a.runGitOp("Resetting...", "Reset hard to "+c.ShortHash, func(repo string) error {
-				return ResetCommit(repo, c.Hash, true)
+			a.confirmDialog("Reset Hard", "This will discard ALL local changes permanently.", true, func() {
+				a.runGitOp("Resetting...", "Reset hard to "+c.ShortHash, func(repo string) error {
+					return ResetCommit(repo, c.Hash, true)
+				})
 			})
 		}},
 	}
@@ -1868,6 +1944,29 @@ func (a *App) appendBranchSection(title string, branches []BranchInfo) {
 			coBtn.AddCSSClass("flat") 
 			            
 			coBtn.ConnectClicked(func() {
+				if a.hasUncommittedChanges() {
+					a.confirmDialog(
+						"Uncommitted Changes",
+						"Stash changes before switching to "+b.Name+"?",
+						false,
+						func() {
+							go func(repo, branch string) {
+								_ = StashSave(repo, "Auto-stash before checkout")
+								err := Checkout(repo, branch)
+								glib.IdleAdd(func() {
+									if err != nil {
+										a.setInfoErr(err.Error())
+										a.gitErrorDialog("Checkout Failed", err.Error())
+									} else {
+										a.setInfoOk("On " + branch)
+									}
+									a.doReload(true)
+								})
+							}(a.state.Path, b.Name)
+						},
+					)
+					return
+				}
 				a.setInfo("Checking out " + b.Name + "…")
 				go func(repo, branch string) {
 					err := Checkout(repo, branch)
@@ -1891,18 +1990,9 @@ func (a *App) appendBranchSection(title string, branches []BranchInfo) {
 					"Merge branch '"+b.Name+"' into the current branch?",
 					false,
 					func() {
-						a.setInfo("Merging " + b.Name + "…")
-						go func(repo, branch string) {
-							err := MergeBranch(repo, branch)
-							glib.IdleAdd(func() {
-								if err != nil {
-									a.setInfoErr(err.Error())
-								} else {
-									a.setInfoOk("Merged " + branch)
-								}
-								a.doReload(true)
-							})
-						}(a.state.Path, b.Name)
+						a.runGitOpSafe("Merging "+b.Name+"…", "Merged "+b.Name, func(repo string) error {
+							return MergeBranch(repo, b.Name)
+						})
 					},
 				)
 			})
@@ -1940,21 +2030,13 @@ func (a *App) appendBranchSection(title string, branches []BranchInfo) {
 				if idx := strings.LastIndex(localName, "/"); idx >= 0 {
 					localName = localName[idx+1:]
 				}
-				a.setInfo("Tracking " + b.Name + "…")
-				go func(repo, remote, local string) {
-					err := CheckoutNewBranch(repo, local)
+				a.runGitOpSafe("Tracking "+b.Name+"…", "Tracking "+localName, func(repo string) error {
+					err := CheckoutNewBranch(repo, localName)
 					if err == nil {
-						_ = gitCmd2(repo, "branch", "--set-upstream-to", remote, local)
+						_ = gitCmd2(repo, "branch", "--set-upstream-to", b.Name, localName)
 					}
-					glib.IdleAdd(func() {
-						if err != nil {
-							a.setInfoErr(err.Error())
-						} else {
-							a.setInfoOk("Tracking " + local)
-						}
-						a.doReload(true)
-					})
-				}(a.state.Path, b.Name, localName)
+					return err
+				})
 			})
 			acts.Append(trackBtn)
 		}
@@ -2376,18 +2458,10 @@ func (a *App) openNewBranchDialog() {
 		if name == "" {
 			return
 		}
-		go func(repo, branch string) {
-			err := CheckoutNewBranch(repo, branch)
-			glib.IdleAdd(func() {
-				if err != nil {
-					a.setInfoErr(err.Error())
-				} else {
-					a.setInfoOk("Created " + branch)
-				}
-				a.hideOverlay()
-				a.doReload(true)
-			})
-		}(a.state.Path, name)
+		a.hideOverlay()
+		a.runGitOpSafe("Creating branch "+name+"…", "Created "+name, func(repo string) error {
+			return CheckoutNewBranch(repo, name)
+		})
 	})
 	btnRow.Append(createBtn)
 	content.Append(btnRow)
@@ -2407,6 +2481,23 @@ func (a *App) updateHeaderInfo() {
 	}
 	a.repoTitle.SetText(a.state.Name)
 	a.repoPath.SetText(a.state.Path)
+
+	// Show HEAD jump button when in detached HEAD state
+	if a.headJumpBtn != nil {
+		detached := strings.HasPrefix(a.state.Branch, "(detached")
+		if detached {
+			shortHash := a.state.Branch
+			// Extract hash from "(detached at abc1234)"
+			if idx := strings.LastIndex(shortHash, " "); idx >= 0 {
+				shortHash = strings.TrimSuffix(shortHash[idx+1:], ")")
+			}
+			a.headJumpBtn.SetLabel("⚠ " + shortHash)
+			a.headJumpBtn.SetTooltipText("Detached HEAD at " + shortHash + " — click to return to branch")
+			a.headJumpBtn.SetVisible(true)
+		} else {
+			a.headJumpBtn.SetVisible(false)
+		}
+	}
 
 	if time.Now().Before(a.infoStickyUntil) {
 		return
@@ -2520,7 +2611,10 @@ func (a *App) renderUnifiedDiff(diff string) {
 	a.diffBuf.SetText("")
 	a.setupDiffTags(a.diffBuf)
 	if strings.TrimSpace(diff) == "" {
-		a.diffBuf.SetText("No changes to display")
+		a.diffBuf.SetText("  No changes to display")
+		start := a.diffBuf.StartIter()
+		end := a.diffBuf.EndIter()
+		a.diffBuf.ApplyTagByName("placeholder", start, end)
 		return
 	}
 
@@ -2629,6 +2723,7 @@ func (a *App) setupDiffTags(buf *gtk.TextBuffer) {
 		{"hunk",         "#7a9fbe", ""},
 		{"normal",       "#c8c4bc", ""},
 		{"modified",     "#b89a5a", ""},
+		{"placeholder",  "#4a4540", ""},
 	}
 	for _, td := range tags {
 		if tt.Lookup(td.name) != nil {
