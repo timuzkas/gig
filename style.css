@@ -1,32 +1,16 @@
 /* ═══════════════════════════════════════════════════════════════
-   GIG — Complete stylesheet
-   Colors are injected by Go as @define-color above this file.
+   GIG — stylesheet
+   @define-color tokens injected by Go above this file.
    ═══════════════════════════════════════════════════════════════ */
 
-/* ── Hard reset — kill GTK's opinionated defaults ─────────────── */
 * {
   border-radius: 0;
   outline: none;
   box-shadow: none;
   -gtk-outline-radius: 0;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 
-/* ── Global transitions ───────────────────────────────────────── */
-* {
-  transition:
-    background-color 130ms ease,
-    border-color     130ms ease,
-    color            130ms ease;
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   SURFACE HIERARCHY
-   @bg       = darkest (diff, main canvas, inputs)
-   @surface  = mid (sidebars, content panel bg)
-   @surface2 = lightest (headerbar, status/commit strips)
-   ═══════════════════════════════════════════════════════════════ */
-
-/* Force everything to start from @bg */
 window,
 window > *,
 box,
@@ -39,96 +23,90 @@ scrolledwindow > * {
   color: @text;
 }
 
-/* ── Override GTK list widget backgrounds — most critical fix ─── */
-list,
-listbox,
-list > row,
-listbox > row,
-list row,
-listbox row {
-  background-color: transparent;
-  color: @text;
-}
-
-/* This catches GTK's "selected" state override */
-list row:selected,
-listbox row:selected {
-  background-color: @selection;
-  color: @text;
-}
-
 /* ═══════════════════════════════════════════════════════════════
-   HEADER BAR
+   HEADERBAR
    ═══════════════════════════════════════════════════════════════ */
+headerbar,
+headerbar > *,
+.titlebar,
+.titlebar > * {
+  background-color: @bg !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
 headerbar {
-  background-color: @surface2;
-  border-bottom: 1px solid @border;
-  min-height: 44px;
-  padding: 0 8px;
+  border-bottom: 1px solid @border !important;
+  padding: 0 6px !important;
+  min-height: 42px !important;
 }
 
-/* GTK adds a gradient/shadow to headerbar — kill it */
-headerbar:backdrop {
-  background-color: @surface2;
+headerbar:backdrop,
+.titlebar:backdrop,
+headerbar:backdrop > *,
+.titlebar:backdrop > * {
+  background-color: @bg !important;
+  background-image: none !important;
+  box-shadow: none !important;
 }
 
-headerbar .title {
-  font-size: 0.72em;
-  font-weight: 700;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: alpha(@accent, 0.5);
+/* ── Window close button ──────────────────────────────────────── */
+windowcontrols,
+windowcontrols > * {
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  /* Remove the left gray separator line GTK adds */
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+windowcontrols button {
+  background-color: @bg !important;
+  background-image: none !important;
+  border: 1px solid @border !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+  /* Force exact square matching other buttons */
+  min-width: 28px !important;
+  max-width: 28px !important;
+  min-height: 28px !important;
+  max-height: 28px !important;
+  padding: 0 !important;
+  margin: 0 0 0 4px !important;
+  color: @text_dim !important;
+}
+
+windowcontrols button:hover {
+  background-color: alpha(@removed, 0.22) !important;
+  background-image: none !important;
+  border-color: alpha(@removed, 0.7) !important;
+  color: @removed !important;
+}
+
+windowcontrols button image,
+windowcontrols button label {
+  background-color: transparent !important;
+  color: inherit !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  padding: 0 !important;
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   BRANCH DROPDOWN
-   Must look like a control, not part of the headerbar.
-   ═══════════════════════════════════════════════════════════════ */
-dropdown {
-  background-color: @bg;
-  color: @text;
-  border: 1px solid alpha(@accent, 0.45);
-  border-radius: 4px;
-  min-height: 30px;
-  padding: 0 8px;
-  font-size: 0.86em;
-  font-weight: 600;
-}
-
-dropdown:hover {
-  background-color: alpha(@accent, 0.08);
-  border-color: @accent;
-  color: @accent;
-}
-
-/* The inner button GTK puts inside dropdown */
-dropdown > button,
-dropdown button {
-  background-color: transparent;
-  border: none;
-  color: inherit;
-  min-height: 28px;
-  padding: 0;
-  box-shadow: none;
-}
-
-dropdown > button:hover,
-dropdown button:hover {
-  background-color: transparent;
-  color: inherit;
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   BUTTONS — base style that looks "active" not "disabled"
+   BUTTONS
    ═══════════════════════════════════════════════════════════════ */
 button {
-  background-color: @surface2;
+  background-color: @bg;
+  background-image: none;
   color: @text;
   border: 1px solid @border;
   border-radius: 4px;
+  box-shadow: none;
   min-height: 28px;
-  padding: 0 11px;
-  font-size: 0.82em;
+  padding: 0 10px;
+  font-size: 13px;
   font-weight: 500;
 }
 
@@ -139,103 +117,180 @@ button label {
 
 button:hover {
   background-color: alpha(@accent, 0.12);
-  border-color: alpha(@accent, 0.6);
+  background-image: none;
+  border-color: alpha(@accent, 0.55);
   color: @accent;
 }
+
+button:hover label { color: inherit; }
 
 button:active {
   background-color: alpha(@accent, 0.20);
+  background-image: none;
 }
 
-/* Header buttons — sit on @surface2 so need darker bg */
-headerbar button {
-  background-color: alpha(@bg, 0.6);
-  color: @text;
-  border-color: @border;
-  min-height: 28px;
+/* Headerbar buttons */
+headerbar button,
+.titlebar button {
+  background-color: @bg !important;
+  background-image: none !important;
+  color: @text !important;
+  border: 1px solid @border !important;
+  box-shadow: none !important;
+  min-height: 28px !important;
+  padding: 0 10px !important;
 }
 
-headerbar button:hover {
-  background-color: alpha(@accent, 0.14);
-  border-color: alpha(@accent, 0.65);
-  color: @accent;
+headerbar button label,
+.titlebar button label {
+  background-color: transparent !important;
+  color: inherit !important;
 }
 
-/* Target the button with high specificity */
-button.suggested-action, 
-button.suggested-action:hover, 
-button.suggested-action:active, 
-button.suggested-action:backdrop {
-    /* This wipes out gradients, images, and colors in one command */
-    background: @accent !important; 
-    
-    /* Ensure text stands out against the accent */
-    color: @bg !important; 
-    
-    /* Remove any blue borders or shadows */
-    border: 1px solid @accent !important;
-    box-shadow: none !important;
-    background-image: none !important;
+headerbar button:hover,
+.titlebar button:hover {
+  background-color: alpha(@accent, 0.12) !important;
+  background-image: none !important;
+  border-color: alpha(@accent, 0.55) !important;
+  color: @accent !important;
 }
 
-/* Give it a slight hover effect using brightness filters instead of colors */
-button.suggested-action:hover {
-    filter: brightness(1.1);
+headerbar button:active,
+.titlebar button:active {
+  background-color: alpha(@accent, 0.20) !important;
+  background-image: none !important;
 }
 
-button.suggested-action:active {
-    filter: brightness(0.9);
+/* HEAD jump button — subtle warning tone */
+button.head-jump-btn {
+  background-color: alpha(@modified, 0.10) !important;
+  background-image: none !important;
+  color: @modified !important;
+  border: 1px solid alpha(@modified, 0.35) !important;
+  font-family: monospace !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  padding: 0 8px !important;
+  min-height: 28px !important;
 }
 
-/* Make sure the disabled state doesn't stay blue either */
-button.suggested-action:disabled {
-    background: alpha(@accent, 0.2) !important;
-    color: alpha(@bg, 0.5) !important;
-    border-color: transparent !important;
-}
-
-button.commit-button-custom {
-    background: @accent !important;
-    background-image: none !important;
-    color: @bg !important;
-    border: 1px solid @accent !important;
-    border-radius: 4px;
-    font-weight: bold;
-    min-height: 32px;
-}
-
-button.commit-button-custom:hover {
-    filter: brightness(1.1);
-}
-
-button.commit-button-custom:disabled {
-    opacity: 0.5;
-    filter: grayscale(1);
+button.head-jump-btn:hover {
+  background-color: alpha(@modified, 0.20) !important;
+  border-color: @modified !important;
+  color: @modified !important;
 }
 
 /* Flat */
 button.flat {
-  background-color: transparent;
-  border-color: transparent;
+  background-color: transparent !important;
+  background-image: none !important;
+  border-color: transparent !important;
   color: @text_dim;
 }
 
 button.flat:hover {
-  background-color: alpha(@accent, 0.10);
+  background-color: alpha(@accent, 0.10) !important;
+  background-image: none !important;
+  border-color: transparent !important;
   color: @accent;
-  border-color: transparent;
 }
+
+/* Suggested */
+button.suggested-action,
+button.suggested-action:hover,
+button.suggested-action:active,
+button.suggested-action:backdrop {
+  background: @accent !important;
+  background-image: none !important;
+  color: @bg !important;
+  border: 1px solid @accent !important;
+  box-shadow: none !important;
+}
+button.suggested-action:hover  { filter: brightness(1.10); }
+button.suggested-action:active { filter: brightness(0.90); }
+button.suggested-action:disabled {
+  background: alpha(@accent, 0.20) !important;
+  color: alpha(@bg, 0.50) !important;
+  border-color: transparent !important;
+}
+
+button.commit-button-custom {
+  background: @accent !important;
+  background-image: none !important;
+  color: @bg !important;
+  border: 1px solid @accent !important;
+  box-shadow: none !important;
+  border-radius: 4px;
+  font-weight: 700;
+  min-height: 32px;
+}
+button.commit-button-custom:hover    { filter: brightness(1.10); }
+button.commit-button-custom:disabled { opacity: 0.5; filter: grayscale(1); }
 
 /* Destructive */
 button.destructive-action {
   background-color: transparent;
+  background-image: none;
   color: @removed;
   border-color: alpha(@removed, 0.35);
 }
-
 button.destructive-action:hover {
   background-color: alpha(@removed, 0.12);
+  background-image: none;
   border-color: @removed;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BRANCH DROPDOWN — kill the left separator line
+   ═══════════════════════════════════════════════════════════════ */
+dropdown {
+  background-color: @bg !important;
+  background-image: none !important;
+  color: @text !important;
+  border: 1px solid @border !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+  min-height: 28px !important;
+  min-width: 100px;
+  max-width: 150px;
+  padding: 0 8px !important;
+  font-size: 13px;
+  font-weight: 600;
+  /* Remove the left gray separator GTK adds before dropdown */
+  margin-left: 0 !important;
+}
+
+dropdown:hover {
+  background-color: alpha(@accent, 0.12) !important;
+  background-image: none !important;
+  border-color: alpha(@accent, 0.55) !important;
+  color: @accent !important;
+}
+
+/* The separator line GTK inserts before dropdown in headerbar */
+headerbar separator,
+.titlebar separator {
+  background-color: transparent !important;
+  background-image: none !important;
+  border: none !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  opacity: 0;
+}
+
+dropdown > button,
+dropdown button,
+dropdown > button:hover,
+dropdown button:hover {
+  background-color: transparent !important;
+  background-image: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: inherit !important;
+  min-height: 0 !important;
+  padding: 0 !important;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -244,19 +299,20 @@ button.destructive-action:hover {
 entry,
 searchentry {
   background-color: @bg;
+  background-image: none;
   color: @text;
   border: 1px solid @border;
   border-radius: 4px;
-  min-height: 29px;
+  min-height: 28px;
   padding: 0 10px;
   caret-color: @accent;
-  font-size: 0.87em;
+  font-size: 13px;
+  box-shadow: none;
 }
 
 entry:focus,
 searchentry:focus {
   border-color: alpha(@accent, 0.65);
-  background-color: @bg;
 }
 
 entry selection,
@@ -265,7 +321,6 @@ searchentry selection {
   color: @text;
 }
 
-/* GTK searchentry icons */
 searchentry image,
 searchentry > image {
   background-color: transparent;
@@ -273,21 +328,36 @@ searchentry > image {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   POPOVERS
+   POPOVERS / CONTEXT MENUS — solid opaque background
    ═══════════════════════════════════════════════════════════════ */
-popover,
-popover > contents,
+popover {
+  background-color: @surface !important;
+  background-image: none !important;
+  border: 1px solid @border !important;
+  border-radius: 6px !important;
+  padding: 0 !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.55) !important;
+  color: @text !important;
+}
+
+/* GTK wraps popover content in a 'contents' node */
+popover > contents {
+  background-color: @surface !important;
+  background-image: none !important;
+  border-radius: 6px !important;
+  padding: 4px !important;
+}
+
+popover > contents > box,
 popover > box {
-  background-color: @surface2;
-  border: 1px solid @border;
-  border-radius: 5px;
-  padding: 4px;
-  color: @text;
+  background-color: @surface !important;
+  background-image: none !important;
+  border-radius: 6px !important;
+  padding: 4px !important;
 }
 
 popover row,
-popover modelbutton,
-popover > contents > * {
+popover modelbutton {
   background-color: transparent;
   color: @text;
   border-radius: 3px;
@@ -297,16 +367,49 @@ popover > contents > * {
 
 popover row:hover,
 popover modelbutton:hover {
-  background-color: alpha(@accent, 0.10);
+  background-color: alpha(@accent, 0.12);
   color: @accent;
+}
+
+/* All buttons inside popovers (context menus) */
+popover button,
+popover button.flat {
+  background-color: transparent !important;
+  background-image: none !important;
+  border: none !important;
+  border-radius: 3px !important;
+  box-shadow: none !important;
+  color: @text !important;
+  min-height: 30px !important;
+  padding: 0 10px !important;
+  text-align: left;
+}
+
+popover button:hover,
+popover button.flat:hover {
+  background-color: alpha(@accent, 0.12) !important;
+  color: @accent !important;
+}
+
+popover button.destructive-action {
+  color: @removed !important;
+}
+
+popover button.destructive-action:hover {
+  background-color: alpha(@removed, 0.12) !important;
+  color: @removed !important;
+}
+
+/* Arrow on popover */
+popover > arrow {
+  background-color: @surface !important;
+  border-color: @border !important;
 }
 
 /* ═══════════════════════════════════════════════════════════════
    SCROLLBARS
    ═══════════════════════════════════════════════════════════════ */
-scrollbar {
-  background-color: transparent;
-}
+scrollbar { background-color: transparent; }
 
 scrollbar slider {
   background-color: alpha(@text_dim, 0.14);
@@ -321,75 +424,103 @@ scrollbar slider:hover {
   min-width: 5px;
 }
 
-scrolledwindow undershoot.top,
-scrolledwindow undershoot.bottom,
-scrolledwindow undershoot.left,
-scrolledwindow undershoot.right,
-scrolledwindow overshoot.top,
-scrolledwindow overshoot.bottom,
-scrolledwindow overshoot.left,
-scrolledwindow overshoot.right {
+scrolledwindow undershoot,
+scrolledwindow overshoot {
   background: none;
   background-image: none;
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   PANED SEPARATORS
+   PANED
    ═══════════════════════════════════════════════════════════════ */
 paned > separator {
   background-color: @border;
   min-width: 1px;
   min-height: 1px;
 }
-
-paned > separator:hover {
-  background-color: alpha(@accent, 0.4);
-}
+paned > separator:hover { background-color: alpha(@accent, 0.4); }
 
 /* ═══════════════════════════════════════════════════════════════
-   STACK SWITCHER
+   STACK SWITCHER (tabs) — highlight selected tab
    ═══════════════════════════════════════════════════════════════ */
-stackswitcher {
-  background-color: @surface;
-  border-bottom: 1px solid @border;
-  padding: 0;
+stackswitcher,
+stackswitcher > * {
+  background-color: @bg !important;
+  background-image: none !important;
+  border-bottom: 1px solid @border !important;
+  padding: 0 !important;
+  box-shadow: none !important;
 }
 
 stackswitcher button {
-  background-color: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
-  min-height: 34px;
-  padding: 0 20px;
-  color: @text_dim;
-  font-size: 0.74em;
-  font-weight: 700;
+  background-color: @bg !important;
+  background-image: none !important;
+  border: none !important;
+  border-bottom: 2px solid transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  min-height: 34px !important;
+  padding: 0 20px !important;
+  color: @text_dim !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
   letter-spacing: 0.09em;
   text-transform: uppercase;
 }
 
+/* Active/checked tab — filled accent background for clear highlight */
 stackswitcher button:checked {
-  color: @accent;
-  border-bottom-color: @accent;
-  background-color: transparent;
+  background-color: alpha(@accent, 0.12) !important;
+  background-image: none !important;
+  color: @accent !important;
+  border-bottom: 2px solid @accent !important;
 }
 
-stackswitcher button:hover {
-  background-color: alpha(@accent, 0.05);
-  color: @text;
+stackswitcher button:hover:not(:checked) {
+  background-color: alpha(@accent, 0.06) !important;
+  background-image: none !important;
+  color: @text !important;
 }
 
 stackswitcher button label {
-  color: inherit;
+  color: inherit !important;
+  background-color: transparent !important;
+  font-size: inherit !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   LISTBOXES
+   ═══════════════════════════════════════════════════════════════ */
+list,
+listbox,
+list > row,
+listbox > row {
+  background-color: transparent;
+  color: @text;
+}
+
+list row:selected,
+listbox row:selected {
+  background-color: @selection;
+  color: @text;
+}
+
+list row:selected *,
+listbox row:selected *,
+.file-row.selected *,
+.commit-row.selected *,
+.repo-row.selected *,
+.file-row:hover *,
+.commit-row:hover *,
+.repo-row:hover *,
+.branch-row:hover *,
+.stash-row:hover * {
   background-color: transparent;
 }
 
 /* ═══════════════════════════════════════════════════════════════
    PANEL CONTAINERS
-   Explicit bg on every named container — nothing left to chance.
    ═══════════════════════════════════════════════════════════════ */
-
 .repo-sidebar {
   background-color: @surface;
   border-right: 1px solid @border;
@@ -402,7 +533,6 @@ stackswitcher button label {
   min-width: 220px;
 }
 
-/* Scrolled windows inside sidebars inherit @surface */
 .repo-sidebar scrolledwindow,
 .repo-sidebar scrolledwindow > viewport,
 .file-sidebar scrolledwindow,
@@ -410,11 +540,7 @@ stackswitcher button label {
   background-color: @surface;
 }
 
-/* Content panel + its scroll areas use @bg */
-.content-panel {
-  background-color: @bg;
-}
-
+.content-panel,
 .content-panel scrolledwindow,
 .content-panel scrolledwindow > viewport,
 .content-panel > stack,
@@ -422,19 +548,18 @@ stackswitcher button label {
   background-color: @bg;
 }
 
-/* ── Top info bar ──────────────────────────────────────────────── */
+.content-panel stackswitcher,
+.content-panel stackswitcher > * {
+  background-color: @bg !important;
+  background-image: none !important;
+}
+
 .top-info-bar {
   background-color: @surface;
   border-bottom: 1px solid @border;
   min-height: 34px;
 }
 
-/* ── Stack switcher lives on @surface too ─────────────────────── */
-.content-panel stackswitcher {
-  background-color: @surface;
-}
-
-/* ── Diff area ─────────────────────────────────────────────────── */
 .diff-area,
 .diff-area > viewport {
   background-color: @bg;
@@ -448,47 +573,52 @@ stackswitcher button label {
 }
 
 .diff-toggle-btn {
-  font-size: 0.9em;
+  font-size: 13px;
   font-weight: 500;
   color: @text_dim;
   padding: 0 16px;
   min-height: 36px;
 }
+.diff-toggle-btn:hover { color: @text; }
 
-.diff-toggle-btn:hover {
-  color: @text;
+/* ── "No changes to display" empty state ─────────────────────── */
+.diff-empty-state {
+  color: @text_dim;
+  font-size: 13px;
+  opacity: 0.45;
+  font-style: italic;
 }
 
-/* ── Status and commit strips ─────────────────────────────────── */
 .status-strip {
-  background-color: @surface;
+  background-color: @bg;
   border-top: 1px solid @border;
   min-height: 26px;
   padding: 0 14px;
-  font-size: 0.76em;
+  font-size: 12px;
   color: @text_dim;
 }
 
-.status-strip box {
+.status-strip *,
+.status-strip box,
+.status-strip label {
   background-color: transparent !important;
+  color: @text_dim;
 }
 
 .commit-strip {
-  background-color: @surface;
+  background-color: @bg;
   border-top: 1px solid @border;
   min-height: 48px;
   padding: 7px 10px;
 }
 
 .commit-strip entry {
-  background-color: @bg;
+  background-color: @surface;
   border-color: @border;
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   SECTION HEADERS inside sidebars
-   These are ListBoxRows — GTK will try to give them a bg.
-   We force them transparent so they inherit the sidebar's @surface.
+   SECTION HEADERS
    ═══════════════════════════════════════════════════════════════ */
 .sidebar-section,
 .sidebar-section *,
@@ -497,10 +627,12 @@ row.section-header > * {
   background-color: transparent;
 }
 
+row.section-header:hover { background-color: transparent; }
+
 .section-label {
   color: @text_dim;
   font-weight: 700;
-  font-size: 0.67em;
+  font-size: 11px;
   letter-spacing: 0.13em;
   text-transform: uppercase;
   opacity: 0.60;
@@ -508,7 +640,7 @@ row.section-header > * {
 }
 
 .section-count {
-  font-size: 0.70em;
+  font-size: 11px;
   font-weight: 700;
   color: @text_dim;
   background-color: alpha(@text_dim, 0.10);
@@ -516,11 +648,23 @@ row.section-header > * {
   padding: 0 6px;
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   LIST ROWS — explicit bg + left-stripe selection
-   ═══════════════════════════════════════════════════════════════ */
+/* ── Ignored files expander — muted, less prominent ──────────── */
+.ignored-expander,
+.ignored-expander > title,
+.ignored-expander > title label {
+  color: alpha(@text_dim, 0.45) !important;
+  font-size: 11px !important;
+  background-color: transparent !important;
+}
 
-/* ── All rows reset ────────────────────────────────────────────── */
+.ignored-expander > title:hover,
+.ignored-expander > title:hover label {
+  color: @text_dim !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   LIST ROWS
+   ═══════════════════════════════════════════════════════════════ */
 .repo-row,
 .file-row,
 .commit-row,
@@ -532,16 +676,6 @@ row.section-header > * {
   border-left: 2px solid transparent;
 }
 
-/* Section header rows — transparent so sidebar @surface shows through */
-row.section-header {
-  background-color: transparent;
-}
-
-row.section-header:hover {
-  background-color: transparent;
-}
-
-/* Row box inner containers */
 .repo-row-box,
 .file-row-box,
 .commit-row-box,
@@ -550,63 +684,59 @@ row.section-header:hover {
   background-color: transparent;
 }
 
-/* ── Hover ─────────────────────────────────────────────────────── */
 .repo-row:hover   { background-color: alpha(@accent, 0.07); border-left-color: alpha(@accent, 0.4); }
 .file-row:hover   { background-color: alpha(@accent, 0.07); }
 .commit-row:hover { background-color: alpha(@accent, 0.06); border-left-color: alpha(@accent, 0.3); }
 .branch-row:hover { background-color: alpha(@accent, 0.06); border-left-color: alpha(@accent, 0.3); }
 .stash-row:hover  { background-color: alpha(@modified, 0.07); border-left-color: alpha(@modified, 0.4); }
 
-/* ── Selected ──────────────────────────────────────────────────── */
 .repo-row.selected   { background-color: alpha(@accent, 0.11); border-left-color: @accent; }
 .file-row.selected   { background-color: @selection; }
 .commit-row.selected { background-color: @selection; border-left-color: @accent; }
 .branch-row.selected { background-color: alpha(@accent, 0.09); border-left-color: @accent; }
 
-/* ── Row padding ───────────────────────────────────────────────── */
-.repo-row-box    { padding: 7px 12px 7px 10px; }
-.file-row-box    { padding: 4px 10px 4px 14px; }
-.commit-row-box  { padding: 5px 12px 5px 10px; }
-.branch-row-box  { padding: 8px 12px 8px 10px; }
-.stash-row-box   { padding: 7px 12px 7px 10px; }
+.repo-row-box   { padding: 7px 12px 7px 10px; }
+.file-row-box   { padding: 4px 10px 4px 14px; }
+.commit-row-box { padding: 5px 12px 5px 10px; }
+.branch-row-box { padding: 8px 12px 8px 10px; }
+.stash-row-box  { padding: 7px 12px 7px 10px; }
 
 /* ═══════════════════════════════════════════════════════════════
-   TYPOGRAPHY — all with explicit transparent bg
+   TYPOGRAPHY
    ═══════════════════════════════════════════════════════════════ */
-.repo-name     { color: @text;     font-weight: 600; font-size: 0.88em; background-color: transparent; }
-.repo-path     { color: @text_dim; font-size: 0.74em;                   background-color: transparent; }
-.commit-hash   { color: @accent;   font-family: monospace; font-size: 0.82em; background-color: transparent; }
-.commit-meta   { color: @text_dim; font-size: 0.76em;                   background-color: transparent; }
-.commit-graph  { color: @text_dim; font-family: monospace; font-size: 0.82em; white-space: pre; opacity: 0.45; background-color: transparent; }
-.dim           { color: @text_dim; background-color: transparent; }
-.empty         { color: @text_dim; font-size: 0.88em; letter-spacing: 0.06em; opacity: 0.50; }
+.repo-name    { color: @text;     font-weight: 600; font-size: 13px; background-color: transparent; }
+.repo-path    { color: @text_dim; font-size: 11px;                   background-color: transparent; }
+.commit-hash  { color: @accent;   font-family: monospace; font-size: 12px; background-color: transparent; }
+.commit-meta  { color: @text_dim; font-size: 11px;                        background-color: transparent; }
+.commit-graph { color: @text_dim; font-family: monospace; font-size: 12px; white-space: pre; opacity: 0.45; background-color: transparent; }
+.dim          { color: @text_dim; background-color: transparent; }
+.empty        { color: @text_dim; font-size: 13px; letter-spacing: 0.06em; opacity: 0.50; }
 
 /* ═══════════════════════════════════════════════════════════════
    STATUS MARKS
    ═══════════════════════════════════════════════════════════════ */
-.status-added    { color: @added;    font-weight: 700; font-size: 0.80em; background-color: transparent; }
-.status-modified { color: @modified; font-weight: 700; font-size: 0.80em; background-color: transparent; }
-.status-removed  { color: @removed;  font-weight: 700; font-size: 0.80em; background-color: transparent; }
-.status-unknown  { color: @text_dim; font-weight: 700; font-size: 0.80em; background-color: transparent; }
+.status-added    { color: @added;    font-weight: 700; font-size: 12px; background-color: transparent; }
+.status-modified { color: @modified; font-weight: 700; font-size: 12px; background-color: transparent; }
+.status-removed  { color: @removed;  font-weight: 700; font-size: 12px; background-color: transparent; }
+.status-unknown  { color: @text_dim; font-weight: 700; font-size: 12px; background-color: transparent; }
 
 /* ═══════════════════════════════════════════════════════════════
    REF LABELS / BADGES
    ═══════════════════════════════════════════════════════════════ */
 .ref-label {
-  font-size: 0.68em;
+  font-size: 11px;
   font-weight: 700;
   border-radius: 3px;
   padding: 1px 5px;
   margin: 0 2px;
 }
-
-.ref-head   { background-color: alpha(@accent, 0.16); color: @accent;  border: 1px solid alpha(@accent, 0.42); }
-.ref-branch { background-color: alpha(@added, 0.13);  color: @added;   border: 1px solid alpha(@added, 0.32); }
-.ref-remote { background-color: alpha(#9a8fbe, 0.13); color: #9a8fbe;  border: 1px solid alpha(#9a8fbe, 0.30); }
+.ref-head   { background-color: alpha(@accent, 0.16);   color: @accent;   border: 1px solid alpha(@accent, 0.42); }
+.ref-branch { background-color: alpha(@added, 0.13);    color: @added;    border: 1px solid alpha(@added, 0.32); }
+.ref-remote { background-color: alpha(#9a8fbe, 0.13);   color: #9a8fbe;   border: 1px solid alpha(#9a8fbe, 0.30); }
 .ref-tag    { background-color: alpha(@modified, 0.13); color: @modified; border: 1px solid alpha(@modified, 0.30); }
 
 .badge-current {
-  font-size: 0.65em;
+  font-size: 11px;
   font-weight: 700;
   background-color: alpha(@added, 0.13);
   color: @added;
@@ -617,7 +747,7 @@ row.section-header:hover {
 
 .ahead-behind {
   font-family: monospace;
-  font-size: 0.72em;
+  font-size: 11px;
   color: @text_dim;
   background-color: alpha(@text_dim, 0.08);
   border: 1px solid alpha(@text_dim, 0.15);
@@ -628,12 +758,12 @@ row.section-header:hover {
 /* ═══════════════════════════════════════════════════════════════
    STASH
    ═══════════════════════════════════════════════════════════════ */
-.stash-index { font-family: monospace; color: @modified; font-size: 0.78em; font-weight: 700; background-color: transparent; }
-.stash-msg   { font-weight: 500; font-size: 0.87em; color: @text; background-color: transparent; }
-.stash-meta  { font-size: 0.74em; color: @text_dim; background-color: transparent; }
+.stash-index { font-family: monospace; color: @modified; font-size: 12px; font-weight: 700; background-color: transparent; }
+.stash-msg   { font-weight: 500; font-size: 13px; color: @text; background-color: transparent; }
+.stash-meta  { font-size: 11px; color: @text_dim; background-color: transparent; }
 
 /* ═══════════════════════════════════════════════════════════════
-   IN-APP OVERLAY PANEL
+   OVERLAY PANEL
    ═══════════════════════════════════════════════════════════════ */
 .overlay-panel {
   background-color: @surface;
@@ -650,26 +780,24 @@ row.section-header:hover {
   border-top-right-radius: 8px;
 }
 
-.overlay-close-btn {
-  font-size: 1.2em !important;
-  font-weight: bold !important;
-  min-width: 32px !important;
-  min-height: 32px !important;
-  margin: -4px;
-}
-
 .overlay-header label {
   font-weight: 700;
-  font-size: 0.74em;
+  font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: @text;
 }
 
-/* Overlay inner content areas */
+.overlay-close-btn {
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  padding: 0 !important;
+}
+
 .overlay-panel scrolledwindow,
-.overlay-panel scrolledwindow > viewport,
-.overlay-panel .content-box {
+.overlay-panel scrolledwindow > viewport {
   background-color: @surface;
 }
 
@@ -692,42 +820,20 @@ row.section-header:hover {
 .info-ok  { color: @added;   background-color: transparent; }
 .info-err { color: @removed; background-color: transparent; }
 
-/* ── Commit Details Table ────────────────────────────────────── */
-.commit-details-table {
-  background-color: @surface;
-}
+/* ═══════════════════════════════════════════════════════════════
+   COMMIT DETAILS HEADER
+   ═══════════════════════════════════════════════════════════════ */
+.commit-details-table           { background-color: @surface; }
+.commit-details-table separator { opacity: 0.4; }
+.commit-details-row             { padding: 10px 20px; }
+.commit-details-author          { font-size: 14px; font-weight: 500; color: @text; }
+.commit-details-hash            { font-family: monospace; font-size: 13px; color: alpha(@accent, 0.85); }
+.commit-details-date            { font-size: 12px; color: @text_dim; }
+.commit-details-subject         { font-size: 16px; font-weight: 700; color: @text; }
 
-.commit-details-table separator {
-  opacity: 0.4;
-}
-
-.commit-details-row {
-  padding: 10px 20px;
-}
-
-.commit-details-author {
-  font-size: 0.95em;
-  font-weight: 500;
-  color: @text;
-}
-
-.commit-details-hash {
-  font-family: monospace;
-  font-size: 0.88em;
-  color: alpha(@accent, 0.85);
-}
-
-.commit-details-date {
-  font-size: 0.82em;
-  color: @text_dim;
-}
-
-.commit-details-subject {
-  font-size: 1.15em;
-  font-weight: 700;
-  color: @text;
-}
-
+/* ═══════════════════════════════════════════════════════════════
+   DIFF VIEWS
+   ═══════════════════════════════════════════════════════════════ */
 textview,
 textview > text,
 .diff-view,
@@ -736,15 +842,11 @@ textview > text,
   color: @text;
 }
 
-/* ── Split Diff View ─────────────────────────────────────────── */
 .diff-view-split {
   background-color: @bg;
   color: @text;
-  font-size: 0.9em;
+  font-size: 13px;
   padding: 8px;
 }
 
-.diff-view-split:first-child {
-  border-right: 1px solid @border;
-}
-
+.diff-view-split:first-child { border-right: 1px solid @border; }

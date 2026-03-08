@@ -110,6 +110,11 @@ func (a *App) Run() {
 // ── Build ─────────────────────────────────────────────────────────
 
 func (a *App) build() {
+	settings := gtk.SettingsGetDefault()
+    if settings != nil {
+        settings.SetObjectProperty("gtk-application-prefer-dark-theme", true)
+    }
+
 	a.loadCSS()
 
 	a.win = gtk.NewApplicationWindow(a.app)
@@ -169,7 +174,7 @@ func (a *App) loadCSS() {
 @define-color modified %s;
 @define-color selection %s;
 
-* { font-family: %s; font-size: %dpt; }
+* { font-family: "%s"; font-size: %dpt; }
 `,
 		a.cfg.Colors.Bg, a.cfg.Colors.Surface, a.cfg.Colors.Surface2,
 		a.cfg.Colors.Border, a.cfg.Colors.Text, a.cfg.Colors.TextDim,
@@ -2609,27 +2614,36 @@ func (a *App) getDiffTag(line string) string {
 
 func (a *App) setupDiffTags(buf *gtk.TextBuffer) {
 	tt := buf.TagTable()
-	ensure := func(name, fg, bg string) {
-		if tt.Lookup(name) != nil {
-			return
+	type tagDef struct {
+		name string
+		fg   string
+		bg   string
+	}
+	
+	tags := []tagDef{
+		{"added",        "#a8d8a8", "#1a3320"},
+		{"removed",      "#e89090", "#331a1a"},
+		{"added-char",   "#4ade80", "#1a3320"},
+		{"removed-char", "#f87171", "#331a1a"},
+		{"header",       "#c9955c", ""},
+		{"hunk",         "#7a9fbe", ""},
+		{"normal",       "#c8c4bc", ""},
+		{"modified",     "#b89a5a", ""},
+	}
+	for _, td := range tags {
+		if tt.Lookup(td.name) != nil {
+			continue
 		}
-		tag := gtk.NewTextTag(name)
-		if fg != "" {
-			tag.SetObjectProperty("foreground", fg)
+		tag := gtk.NewTextTag(td.name)
+		if td.fg != "" {
+			tag.SetObjectProperty("foreground", td.fg)
 		}
-		if bg != "" {
-			tag.SetObjectProperty("background", bg)
+		if td.bg != "" {
+			tag.SetObjectProperty("background", td.bg)
+			tag.SetObjectProperty("paragraph-background", td.bg)
 		}
 		tt.Add(tag)
 	}
-	ensure("added", "#7ab87a", "")   // Green
-	ensure("removed", "#c06060", "") // Red
-	ensure("added-char", "#4ade80", "")   // Bright green char
-	ensure("removed-char", "#f87171", "") // Bright red char
-	ensure("header", "#c9955c", "")
-	ensure("hunk", "#6e6860", "")
-	ensure("normal", "#ddd8d0", "")
-	ensure("modified", "#b89a5a", "")
 }
 
 func (a *App) nextDiffRequestID() uint64 {

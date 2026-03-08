@@ -496,7 +496,7 @@ func GetFileDiff(repoPath, filePath string, staged bool) string {
 }
 
 func GetCommitDiff(repoPath, hash string) string {
-	out, err := gitCmd(repoPath, "show", "--no-color", "--patch", "-s", "--format=", hash)
+	out, err := gitCmd(repoPath, "show", "--no-color", "--patch", "--format=", hash)
 	if err != nil {
 		return ""
 	}
