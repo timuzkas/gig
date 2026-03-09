@@ -4101,6 +4101,7 @@ func (a *App) updateStatusStrip() {
 	if a.state == nil {
 		a.branchLabel.SetText("")
 		a.aheadLabel.SetText("")
+		a.aheadLabel.SetTooltipText("")
 		a.statsLabel.SetText("")
 		return
 	}
@@ -4117,14 +4118,17 @@ func (a *App) updateStatusStrip() {
 
 	if a.state.Ahead == -1 && a.state.Behind == -1 {
 		a.aheadLabel.SetText("! No Upstream")
+		a.aheadLabel.SetTooltipText("No upstream tracking branch set")
 		a.aheadLabel.SetVisible(true)
 		a.setUpstreamFixBtn.SetVisible(true)
 	} else if a.state.Ahead > 0 || a.state.Behind > 0 {
 		a.aheadLabel.SetText(fmt.Sprintf("↑%d ↓%d", a.state.Ahead, a.state.Behind))
+		a.aheadLabel.SetTooltipText(fmt.Sprintf("%d commits ahead, %d commits behind upstream", a.state.Ahead, a.state.Behind))
 		a.aheadLabel.SetVisible(true)
 		a.setUpstreamFixBtn.SetVisible(false)
 	} else {
 		a.aheadLabel.SetText("")
+		a.aheadLabel.SetTooltipText("")
 		a.aheadLabel.SetVisible(false)
 		a.setUpstreamFixBtn.SetVisible(false)
 	}
