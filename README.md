@@ -20,5 +20,8 @@ Requirements: Go 1.25+, GTK 4.x, pkg-config.
 go build -o gig .
 ```
 
+
+## Showcase
+
 ## License
 MIT
