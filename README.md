@@ -1,4 +1,4 @@
-# gig
+# <img src="gig.png" width="32" height="32" valign="middle"> gig
 
 A minimalist GTK4 Git client for keyboard-centric workflows.
 
@@ -10,20 +10,7 @@ A minimalist GTK4 Git client for keyboard-centric workflows.
 
 ## Keybindings
 
-| Shortcut | Action |
-| :--- | :--- |
-| `Ctrl + O` | Open directory / Add repositories |
-| `Ctrl + R` | Refresh state |
-| `Ctrl + F` | Fetch all remotes |
-| `Ctrl + L` | Pull current branch |
-| `Ctrl + P` | Push current branch |
-| `Ctrl + Enter`| Commit staged changes |
-| `Ctrl + B` | Switch to Branches view |
-| `Ctrl + T` | Toggle Split/Unified diff |
-| `Ctrl + [ / ]` | Navigate commit history |
-| `/` | Focus search |
-| `Ctrl + 1 / 2` | Focus Changes / History panels |
-| `Esc` | Close popup overlays |
+All shortcuts are fully configurable in `~/.config/gig/config.toml`. Press `Ctrl + H` within the application to open the hotkeys help panel.
 
 ## Build
 

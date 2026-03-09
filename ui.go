@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"math"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -183,6 +184,8 @@ func (a *App) build() {
 	}
 }
 
+
+
 func (a *App) loadCSS() {
 	display := gdk.DisplayGetDefault()
 	if display == nil {
@@ -218,6 +221,161 @@ window { background-color: @bg; }
 
 	provider.LoadFromData(cssVars)
 	gtk.StyleContextAddProviderForDisplay(display, provider, gtk.STYLE_PROVIDER_PRIORITY_USER)
+}
+
+func enableKineticScroll(sw *gtk.ScrolledWindow) {
+	var (
+		velocityY    float64
+		overshoot    float64
+		inertiaTimer glib.SourceHandle
+		lastY        float64
+	)
+
+	marginTarget := sw.Child()
+
+	setMargins := func(top, bottom int) {
+		if marginTarget == nil {
+			return
+		}
+		if w, ok := marginTarget.(interface {
+			SetMarginTop(int)
+			SetMarginBottom(int)
+		}); ok {
+			w.SetMarginTop(top)
+			w.SetMarginBottom(bottom)
+		}
+	}
+
+	resetMargins := func() {
+		setMargins(0, 0)
+	}
+
+	stopInertia := func() {
+		if inertiaTimer != 0 {
+			glib.SourceRemove(inertiaTimer)
+			inertiaTimer = 0
+		}
+		velocityY = 0
+		overshoot = 0
+		resetMargins()
+	}
+
+	startInertia := func() {
+		if inertiaTimer != 0 {
+			return
+		}
+
+		inertiaTimer = glib.TimeoutAdd(16, func() bool {
+			vadj := sw.VAdjustment()
+			if vadj == nil {
+				inertiaTimer = 0
+				return false
+			}
+
+			minVal := vadj.Lower()
+			maxVal := vadj.Upper() - vadj.PageSize()
+			current := vadj.Value()
+
+			if (current <= minVal && velocityY < 0) ||
+				(current >= maxVal && velocityY > 0) {
+				overshoot -= velocityY * 0.4
+				velocityY *= 0.6
+			}
+
+			if math.Abs(velocityY) < 0.1 && math.Abs(overshoot) < 0.5 {
+				inertiaTimer = 0
+				velocityY = 0
+				overshoot = 0
+				resetMargins()
+				return false
+			}
+
+			next := current + velocityY
+			if next < minVal {
+				next = minVal
+			}
+			if next > maxVal {
+				next = maxVal
+			}
+			vadj.SetValue(next)
+
+			velocityY *= 0.90
+
+			if math.Abs(overshoot) > 0 {
+				if overshoot > 0 {
+					setMargins(int(overshoot), 0)
+				} else {
+					setMargins(0, int(-overshoot))
+				}
+				overshoot *= 0.8
+			} else {
+				resetMargins()
+			}
+
+			return true
+		})
+	}
+
+	ctrl := gtk.NewEventControllerScroll(gtk.EventControllerScrollVertical)
+	ctrl.SetPropagationPhase(gtk.PhaseCapture)
+	ctrl.ConnectScroll(func(_, dy float64) bool {
+		if sw.VAdjustment() == nil {
+			return false
+		}
+		velocityY += dy * 14
+		startInertia()
+		return true
+	})
+	sw.AddController(ctrl)
+
+	drag := gtk.NewGestureDrag()
+	drag.SetButton(1)
+	drag.SetPropagationPhase(gtk.PhaseCapture)
+
+	drag.ConnectDragBegin(func(_, _ float64) {
+		stopInertia()
+		lastY = 0
+	})
+
+	drag.ConnectDragUpdate(func(_, offsetY float64) {
+		vadj := sw.VAdjustment()
+		if vadj == nil {
+			return
+		}
+
+		delta := lastY - offsetY
+		lastY = offsetY
+		velocityY = delta
+
+		minVal := vadj.Lower()
+		maxVal := vadj.Upper() - vadj.PageSize()
+		next := vadj.Value() + delta
+
+		if next < minVal {
+			overshoot = (minVal - next) * 0.35
+			next = minVal
+		} else if next > maxVal {
+			overshoot = -(next - maxVal) * 0.35
+			next = maxVal
+		} else {
+			overshoot = 0
+		}
+
+		vadj.SetValue(next)
+
+		if overshoot > 0 {
+			setMargins(int(overshoot), 0)
+		} else if overshoot < 0 {
+			setMargins(0, int(-overshoot))
+		} else {
+			resetMargins()
+		}
+	})
+
+	drag.ConnectDragEnd(func(_, _ float64) {
+		startInertia()
+	})
+	sw.AddController(drag)
 }
 
 func (a *App) buildOverlayPanel() {
@@ -1450,6 +1608,7 @@ func (a *App) buildRepoSidebar() *gtk.Box {
 	scroll := gtk.NewScrolledWindow()
 	scroll.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
 	scroll.SetVExpand(true)
+	enableKineticScroll(scroll)
 
 	a.repoListBox = gtk.NewListBox()
 	a.repoListBox.SetSelectionMode(gtk.SelectionNone)
@@ -1488,6 +1647,7 @@ func (a *App) buildFileSidebar() *gtk.Box {
 	box.Append(a.remoteLabel)
 
 	scroll := gtk.NewScrolledWindow()
+	enableKineticScroll(scroll)
 	scroll.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
 	scroll.SetVExpand(true)
 
@@ -1585,6 +1745,8 @@ func (a *App) buildLogAndDiff() *gtk.Paned {
 	logScroll := gtk.NewScrolledWindow()
 	logScroll.SetPolicy(gtk.PolicyAutomatic, gtk.PolicyAutomatic)
 	logScroll.SetVExpand(true)
+	enableKineticScroll(logScroll)
+	
 	a.commitListBox = gtk.NewListBox()
 	a.commitListBox.SetSelectionMode(gtk.SelectionNone)
 	logScroll.SetChild(a.commitListBox)
@@ -1724,6 +1886,7 @@ func (a *App) buildLogAndDiff() *gtk.Paned {
 	a.diffScroll.SetPolicy(gtk.PolicyAutomatic, gtk.PolicyAutomatic)
 	a.diffScroll.SetVExpand(true)
 	a.diffScroll.SetChild(diffContainer)
+	enableKineticScroll(a.diffScroll)
 
 	paned.SetStartChild(logScroll)
 	paned.SetEndChild(a.diffScroll)
@@ -1755,6 +1918,8 @@ func (a *App) buildBranchesView() *gtk.Box {
 	scroll := gtk.NewScrolledWindow()
 	scroll.SetPolicy(gtk.PolicyAutomatic, gtk.PolicyAutomatic)
 	scroll.SetVExpand(true)
+	enableKineticScroll(scroll)
+	
 	a.branchListBox = gtk.NewListBox()
 	a.branchListBox.SetSelectionMode(gtk.SelectionNone)
 	scroll.SetChild(a.branchListBox)
