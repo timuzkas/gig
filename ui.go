@@ -4159,7 +4159,7 @@ func (a *App) updateCommitButton() {
 			break
 		}
 	}
-	a.commitButton.SetSensitive(msg != "" && hasStaged)
+	a.commitButton.SetSensitive(msg != "" && (hasStaged || a.amendMode))
 }
 
 func (a *App) renderDiff(diff string) {
