@@ -74,9 +74,10 @@ type FeaturesConfig struct {
 }
 
 type ReposConfig struct {
-	Paths []string `toml:"paths"`
+    Paths        []string `toml:"paths"`
+    StarredPaths []string `toml:"starred_paths"`
+    StarredOnly  bool     `toml:"starred_only"`
 }
-
 func DefaultConfig() Config {
 	return Config{
 		Appearance: AppearanceConfig{
@@ -137,19 +138,43 @@ func DefaultConfig() Config {
 }
 
 func LoadConfig() Config {
-	cfg := DefaultConfig()
-	candidates := []string{
-		"config.toml",
-		filepath.Join(configDir(), "gig", "config.toml"),
-	}
-	for _, path := range candidates {
-		if _, err := os.Stat(path); err == nil {
-			if _, err := toml.DecodeFile(path, &cfg); err == nil {
-				return cfg
-			}
-		}
-	}
-	return cfg
+    return LoadConfigFrom("")
+}
+
+func LoadConfigFrom(cfgPath string) Config {
+    cfg := DefaultConfig()
+    var candidates []string
+    if cfgPath != "" {
+        candidates = []string{cfgPath}
+    } else {
+        candidates = []string{
+            "config.toml",
+            filepath.Join(configDir(), "gig", "config.toml"),
+        }
+    }
+    for _, path := range candidates {
+        if _, err := os.Stat(path); err == nil {
+            if _, err := toml.DecodeFile(path, &cfg); err == nil {
+                return cfg
+            }
+        }
+    }
+    return cfg
+}
+
+func SaveConfig(cfg Config) {
+    dir := filepath.Join(configDir(), "gig")
+    os.MkdirAll(dir, 0755)
+    path := filepath.Join(dir, "config.toml")
+    if _, err := os.Stat("config.toml"); err == nil {
+        path = "config.toml"
+    }
+    f, err := os.Create(path)
+    if err != nil {
+        return
+    }
+    defer f.Close()
+    toml.NewEncoder(f).Encode(cfg)
 }
 
 func configDir() string {

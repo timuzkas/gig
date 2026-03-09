@@ -119,10 +119,15 @@ type App struct {
 }
 
 func NewApp(cfg Config) *App {
-	a := &App{cfg: cfg}
-	a.repos = DiscoverRepos(cfg.Repos.Paths, cfg.Behavior.ScanParentOnStart)
-	a.conflictDrafts = make(map[string]string)
-	return a
+    a := &App{cfg: cfg}
+    a.repos = DiscoverRepos(
+        cfg.Repos.Paths,
+        cfg.Behavior.ScanParentOnStart,
+        cfg.Repos.StarredPaths,
+        cfg.Repos.StarredOnly,
+    )
+    a.conflictDrafts = make(map[string]string)
+    return a
 }
 
 func (a *App) Run() {
@@ -1804,8 +1809,11 @@ func (a *App) populateRepos() {
 		row := gtk.NewListBoxRow()
 		row.AddCSSClass("repo-row")
 
-		box := gtk.NewBox(gtk.OrientationVertical, 2)
-		box.AddCSSClass("repo-row-box")
+		hbox := gtk.NewBox(gtk.OrientationHorizontal, 0)
+		
+		vbox := gtk.NewBox(gtk.OrientationVertical, 2)
+		vbox.AddCSSClass("repo-row-box")
+		vbox.SetHExpand(true)
 
 		name := gtk.NewLabel(repo.Name)
 		name.SetXAlign(0)
@@ -1816,14 +1824,68 @@ func (a *App) populateRepos() {
 		path.SetEllipsize(3)
 		path.AddCSSClass("repo-path")
 
-		box.Append(name)
-		box.Append(path)
-		row.SetChild(box)
+		vbox.Append(name)
+		vbox.Append(path)
+		
+		hbox.Append(vbox)
+
+		starIcon := "☆"
+		if repo.Starred {
+			starIcon = "★"
+		}
+		starBtn := gtk.NewButtonWithLabel(starIcon)
+		starBtn.AddCSSClass("flat")
+		starBtn.AddCSSClass("repo-star-btn")
+		if repo.Starred {
+			starBtn.AddCSSClass("starred")
+		}
+		starBtn.ConnectClicked(func() { a.toggleStar(repo.Path) })
+		hbox.Append(starBtn)
+
+		row.SetChild(hbox)
 
 		click := gtk.NewGestureClick()
 		click.ConnectReleased(func(_ int, _, _ float64) { a.selectRepo(repo.Path) })
 		row.AddController(click)
 		a.repoListBox.Append(row)
+	}
+}
+
+func (a *App) toggleStar(path string) {
+	isStarred := false
+	var newStarred []string
+	for _, p := range a.cfg.Repos.StarredPaths {
+		if p == path {
+			isStarred = true
+			continue
+		}
+		newStarred = append(newStarred, p)
+	}
+
+	if !isStarred {
+		newStarred = append(newStarred, path)
+	}
+
+	a.cfg.Repos.StarredPaths = newStarred
+	SaveConfig(a.cfg)
+
+	for i := range a.repos {
+		if a.repos[i].Path == path {
+			a.repos[i].Starred = !isStarred
+			break
+		}
+	}
+
+	sort.Slice(a.repos, func(i, j int) bool {
+		if a.repos[i].Starred != a.repos[j].Starred {
+			return a.repos[i].Starred
+		}
+		return strings.ToLower(a.repos[i].Name) < strings.ToLower(a.repos[j].Name)
+	})
+
+	a.populateRepos()
+	if a.selectedRepoPath != "" {
+		a.selectRepo(a.selectedRepoPath)
 	}
 }
 
@@ -3237,7 +3299,7 @@ func (a *App) openPathDialog() {
 			path = filepath.Join(home, path[1:])
 		}
 
-		newRepos := DiscoverRepos([]string{path}, true)
+		newRepos := DiscoverRepos([]string{path}, true, a.cfg.Repos.StarredPaths, false)
 		if len(newRepos) == 0 {
 			a.setInfoErr("No git repositories found in " + path)
 			return
@@ -3373,6 +3435,18 @@ func (a *App) setupHotkeys() {
 				}
 			}
 
+			if cleanState == gdk.ControlMask {
+			    focus := a.win.Focus()
+			    if focus != nil {
+			        if entry, ok := focus.(*gtk.Entry); ok && entry == a.commitEntry {
+			            kv, _ := parseAccel(a.cfg.Hotkeys.Commit)
+			            if kv != keyval {
+			                return false
+			            }
+			        }
+			    }
+			}
+
 			if kv >= gdk.KEY_a && kv <= gdk.KEY_z {
 				upKv := kv - (gdk.KEY_a - gdk.KEY_A)
 				if (keyval == kv || keyval == upKv) && cleanState == mods {
@@ -3387,12 +3461,12 @@ func (a *App) setupHotkeys() {
 			return true
 		}
 		if match(a.cfg.Hotkeys.Commit) {
-			if !a.commitEntry.HasFocus() {
-				a.commitEntry.GrabFocus()
-			} else if a.commitButton.IsSensitive() {
-				a.commitButton.Activate()
-			}
-			return true
+		    if a.commitButton.IsSensitive() {
+		        a.commitButton.Activate()
+		    } else {
+		        a.commitEntry.GrabFocus()
+		    }
+		    return true
 		}
 		if match(a.cfg.Hotkeys.Fetch) {
 			a.runGitOp("Fetching…", "Fetch complete", Fetch)

@@ -66,8 +66,9 @@ type RemoteInfo struct {
 }
 
 type RepoInfo struct {
-	Name string
-	Path string
+    Name    string
+    Path    string
+    Starred bool
 }
 
 type StashEntry struct {
@@ -804,11 +805,11 @@ func LoadRepoState(repoPath string, maxCommits int) *RepoState {
 	}
 }
 
-func DiscoverRepos(inputs []string, scanParent bool) []RepoInfo {
+func DiscoverRepos(inputs []string, scanParent bool, starredPaths []string, starredOnly bool) []RepoInfo {
 	seen := map[string]bool{}
 	var repos []RepoInfo
 
-	addRepo := func(path string) {
+	addRepo := func(path string, starred bool) {
 		root, err := FindRepoRoot(path)
 		if err != nil {
 			return
@@ -818,42 +819,56 @@ func DiscoverRepos(inputs []string, scanParent bool) []RepoInfo {
 		}
 		seen[root] = true
 		repos = append(repos, RepoInfo{
-			Name: filepath.Base(root),
-			Path: root,
+			Name:    filepath.Base(root),
+			Path:    root,
+			Starred: starred,
 		})
 	}
 
-	for _, p := range inputs {
-		if p == "" {
-			continue
-		}
-
+	starredMap := make(map[string]bool)
+	for _, p := range starredPaths {
 		if IsGitRepo(p) {
-			addRepo(p)
-			continue
+			addRepo(p, true)
+			starredMap[p] = true
 		}
+	}
 
-		if !scanParent {
-			continue
-		}
-
-		entries, err := os.ReadDir(p)
-		if err != nil {
-			continue
-		}
-
-		for _, entry := range entries {
-			if !entry.IsDir() {
+	if !starredOnly {
+		for _, p := range inputs {
+			if p == "" {
 				continue
 			}
-			child := filepath.Join(p, entry.Name())
-			if IsGitRepo(child) {
-				addRepo(child)
+
+			if IsGitRepo(p) {
+				addRepo(p, starredMap[p])
+				continue
+			}
+
+			if !scanParent {
+				continue
+			}
+
+			entries, err := os.ReadDir(p)
+			if err != nil {
+				continue
+			}
+
+			for _, entry := range entries {
+				if !entry.IsDir() {
+					continue
+				}
+				child := filepath.Join(p, entry.Name())
+				if IsGitRepo(child) {
+					addRepo(child, starredMap[child])
+				}
 			}
 		}
 	}
 
 	sort.Slice(repos, func(i, j int) bool {
+		if repos[i].Starred != repos[j].Starred {
+			return repos[i].Starred
+		}
 		return strings.ToLower(repos[i].Name) < strings.ToLower(repos[j].Name)
 	})
 

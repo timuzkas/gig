@@ -4,7 +4,10 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"flag"
 )
+
+var configPath string
 
 func main() {
 	if runtime.GOOS == "windows" {
@@ -18,8 +21,13 @@ func main() {
 		}
 	}
 
-	cfg := LoadConfig()
+	flag.StringVar(&configPath, "c", "", "Path to config file")
+    flag.Parse()
+
+    cfg := LoadConfigFrom(configPath)
+	
 	SetLogConfig(cfg.Behavior.Logging, cfg.Behavior.LogPath)
 	app := NewApp(cfg)
 	app.Run()
 }
+
