@@ -84,6 +84,7 @@ type FeaturesConfig struct {
 	ShowCommitDates   bool `toml:"show_commit_dates"`
 	ShowRemoteSummary bool `toml:"show_remote_summary"`
 	RepoConfigDialog  bool `toml:"repo_config_dialog"`
+	ShowConflictBase  bool `toml:"show_conflict_base"`
 }
 
 type ReposConfig struct {
@@ -127,6 +128,7 @@ func DefaultConfig() Config {
 			ShowCommitDates:   true,
 			ShowRemoteSummary: true,
 			RepoConfigDialog:  true,
+			ShowConflictBase:  false,
 		},
 		Repos: ReposConfig{
 			Paths: []string{"."},

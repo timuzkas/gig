@@ -1484,7 +1484,8 @@ textview > text,
 .conflict-ours-label {
   color: @added;
 }
-.conflict-base-label {
+.conflict-base-label,
+.conflict-pane-label-base {
   color: @text_dim;
 }
 .conflict-theirs-label {

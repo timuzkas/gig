@@ -409,13 +409,16 @@ func (a *App) buildOverlayPanel() {
 }
 
 func (a *App) showOverlay(child gtk.Widgetter) {
+	wasHiding := a.overlayTimeout != 0
 	if a.overlayTimeout != 0 {
 		glib.SourceRemove(a.overlayTimeout)
 		a.overlayTimeout = 0
 	}
 
 	if prev := a.overlayReveal.Child(); prev != nil {
-		a.overlayStack = append(a.overlayStack, prev)
+		if !wasHiding {
+			a.overlayStack = append(a.overlayStack, prev)
+		}
 		a.overlayReveal.SetChild(nil)
 	}
 
@@ -639,6 +642,14 @@ func (a *App) confirmDialog(title, body string, destructive bool, onConfirm func
 	card.AddController(keyCtrl)
 
 	a.showOverlay(card)
+
+	glib.IdleAdd(func() {
+		if destructive {
+			cancelBtn.GrabFocus()
+		} else {
+			okBtn.GrabFocus()
+		}
+	})
 }
 
 func (a *App) promptDialog(title, placeholder, initial string, onOK func(string)) {
@@ -980,15 +991,31 @@ func (a *App) buildConflictEditor() *gtk.Box {
 		&a.conflictTheirsBuf,
 	)
 
-	a.conflictBaseBuf = gtk.NewTextBuffer(nil)
+	if a.cfg.Features.ShowConflictBase {
+		baseBox := a.buildConflictPane(
+			"BASE",
+			"conflict-base",
+			&a.conflictBaseBuf,
+		)
+		topPaned.SetStartChild(oursBox)
+		midPaned := gtk.NewPaned(gtk.OrientationHorizontal)
+		midPaned.SetStartChild(baseBox)
+		midPaned.SetEndChild(theirsBox)
+		midPaned.SetPosition(235)
+		midPaned.SetResizeStartChild(true)
+		midPaned.SetResizeEndChild(true)
+		topPaned.SetEndChild(midPaned)
+		topPaned.SetPosition(235)
+	} else {
+		topPaned.SetStartChild(oursBox)
+		topPaned.SetEndChild(theirsBox)
+		topPaned.SetPosition(470)
+	}
 
-	topPaned.SetStartChild(oursBox)
-	topPaned.SetEndChild(theirsBox)
 	topPaned.SetResizeStartChild(true)
 	topPaned.SetResizeEndChild(true)
 	topPaned.SetShrinkStartChild(true)
 	topPaned.SetShrinkEndChild(true)
-	topPaned.SetPosition(470)
 
 	resHeader := gtk.NewBox(gtk.OrientationHorizontal, 6)
 	resHeader.AddCSSClass("conflict-pane-header")
@@ -1280,6 +1307,9 @@ func (a *App) spliceResolutionBuffer(hunk *ConflictHunk, lines []string) {
 			if count == a.conflictHunkIdx {
 				start = i
 			}
+		}
+		if strings.HasPrefix(trimmed, "|||||||") {
+			// diff3 base marker, skip it as part of the block
 		}
 		if strings.HasPrefix(trimmed, ">>>>>>>") {
 			if count == a.conflictHunkIdx {
@@ -2774,7 +2804,10 @@ func (a *App) populateCommits() {
 	}
 
 	for i, c := range a.state.Commits {
-		if filter != "" && c.IsCommit {
+		if !c.IsCommit {
+			continue
+		}
+		if filter != "" {
 			if !strings.Contains(strings.ToLower(c.Subject+" "+c.Author+" "+c.ShortHash), filter) {
 				continue
 			}
@@ -2800,13 +2833,6 @@ func (a *App) populateCommits() {
 			graph.SetXAlign(0)
 			graph.AddCSSClass("commit-graph")
 			box.Append(graph)
-		}
-
-		if !c.IsCommit {
-			row.SetSelectable(false)
-			row.SetChild(box)
-			a.commitListBox.Append(row)
-			continue
 		}
 
 		hash := gtk.NewLabel(c.ShortHash)

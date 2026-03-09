@@ -174,10 +174,10 @@ func GetConflictFiles(repoPath string) []ConflictFile {
 }
 
 func GetFileVersions(repoPath, path string) (base, ours, theirs string) {
-	base, _ = gitCmd(repoPath, "show", ":1:"+path)
-	ours, _ = gitCmd(repoPath, "show", ":2:"+path)
-	theirs, _ = gitCmd(repoPath, "show", ":3:"+path)
-	return
+	b, _ := gitCmd(repoPath, "show", ":1:"+path)
+	o, _ := gitCmd(repoPath, "show", ":2:"+path)
+	t, _ := gitCmd(repoPath, "show", ":3:"+path)
+	return b, o, t
 }
 
 func ParseConflictHunks(content string) []ConflictHunk {
@@ -200,11 +200,11 @@ func ParseConflictHunks(content string) []ConflictHunk {
 		case strings.HasPrefix(line, "<<<<<<<"):
 			cur = stateOurs
 			hunk = ConflictHunk{StartLine: i, Resolution: ResolutionNone}
-		case strings.HasPrefix(line, "|||||||") && cur == stateOurs:
+		case strings.HasPrefix(line, "|||||||"):
 			cur = stateBase
-		case strings.HasPrefix(line, "=======") && (cur == stateOurs || cur == stateBase):
+		case strings.HasPrefix(line, "======="):
 			cur = stateTheirs
-		case strings.HasPrefix(line, ">>>>>>>") && cur == stateTheirs:
+		case strings.HasPrefix(line, ">>>>>>>"):
 			hunks = append(hunks, hunk)
 			hunk = ConflictHunk{}
 			cur = stateNormal
@@ -719,7 +719,7 @@ func GetFileDiff(repoPath, filePath string, staged bool, wordDiff bool) string {
 }
 
 func GetCommitDiff(repoPath, hash string, wordDiff bool) string {
-	args := []string{"show", "--no-color", "--patch", "--format="}
+	args := []string{"show", "--no-color", "--patch", "--format=", "-m"}
 	if wordDiff {
 		args = append(args, "--word-diff=plain")
 	}
@@ -776,7 +776,7 @@ func RenameBranch(repoPath, oldName, newName string) error {
 }
 
 func MergeBranch(repoPath, branch string) error {
-	_, err := gitCmd(repoPath, "merge", branch, "--no-edit")
+	_, err := gitCmd(repoPath, "merge", branch, "--no-ff", "--no-edit")
 	return err
 }
 
