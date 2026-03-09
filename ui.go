@@ -507,6 +507,89 @@ func (a *App) promptDialog(title, placeholder, initial string, onOK func(string)
 	})
 }
 
+func (a *App) openHelpPanel() {
+	content := gtk.NewBox(gtk.OrientationVertical, 0)
+
+	scroll := gtk.NewScrolledWindow()
+	scroll.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
+	scroll.SetVExpand(true)
+	scroll.SetSizeRequest(-1, 500)
+
+	grid := gtk.NewGrid()
+	grid.SetColumnSpacing(24)
+	grid.SetRowSpacing(6)
+	grid.SetMarginTop(16)
+	grid.SetMarginBottom(16)
+	grid.SetMarginStart(20)
+	grid.SetMarginEnd(20)
+
+	row := 0
+	addSection := func(title string) {
+		lbl := gtk.NewLabel(title)
+		lbl.SetXAlign(0)
+		lbl.AddCSSClass("section-label")
+		lbl.SetMarginTop(10)
+		grid.Attach(lbl, 0, row, 2, 1)
+		row++
+	}
+	addRow := func(accel, desc string) {
+		key := gtk.NewLabel(a.formatAccel(accel))
+		key.SetXAlign(0)
+		key.AddCSSClass("commit-hash")
+		key.SetSizeRequest(160, -1)
+
+		d := gtk.NewLabel(desc)
+		d.SetXAlign(0)
+		d.AddCSSClass("dim")
+
+		grid.Attach(key, 0, row, 1, 1)
+		grid.Attach(d, 1, row, 1, 1)
+		row++
+	}
+
+	addSection("Git Operations")
+	addRow(a.cfg.Hotkeys.Fetch,  "Fetch all remotes")
+	addRow(a.cfg.Hotkeys.Pull,   "Pull current branch")
+	addRow(a.cfg.Hotkeys.Push,   "Push current branch")
+	addRow(a.cfg.Hotkeys.PushForce, "Push force-with-lease")
+	addRow(a.cfg.Hotkeys.Sync,   "Fetch + Pull (sync)")
+	addRow(a.cfg.Hotkeys.Commit, "Commit staged changes")
+	addRow(a.cfg.Hotkeys.StageAll, "Stage all changes")
+	addRow(a.cfg.Hotkeys.UnstageAll, "Unstage all changes")
+	addRow(a.cfg.Hotkeys.RevertAll, "Revert all unstaged changes")
+	addRow(a.cfg.Hotkeys.Stash, "Quick stash")
+	addRow(a.cfg.Hotkeys.StashPop, "Pop latest stash")
+	addRow(a.cfg.Hotkeys.NewBranch, "New branch")
+
+	addSection("Navigation")
+	addRow(a.cfg.Hotkeys.Panel1,     "Focus file list")
+	addRow(a.cfg.Hotkeys.Panel2,     "Focus commit list")
+	addRow(a.cfg.Hotkeys.Panel3,     "Focus diff view")
+	addRow(a.cfg.Hotkeys.PrevCommit, "Previous commit")
+	addRow(a.cfg.Hotkeys.NextCommit, "Next commit")
+	addRow(a.cfg.Hotkeys.Search,     "Focus commit search")
+	addRow(a.cfg.Hotkeys.Branch,     "Switch to Branches tab")
+	addRow(a.cfg.Hotkeys.JumpTo,     "Jump to commit")
+	addRow(a.cfg.Hotkeys.CopyHash,   "Copy commit hash")
+
+	addSection("View")
+	addRow(a.cfg.Hotkeys.ToggleSplit, "Toggle split/unified diff")
+	addRow(a.cfg.Hotkeys.Refresh,     "Refresh repository state")
+	addRow(a.cfg.Hotkeys.OpenDir,     "Open directory")
+	addRow(a.cfg.Hotkeys.Diff,        "Open diff in external tool")
+	addRow(a.cfg.Hotkeys.Edit,        "Open file in editor")
+
+	addSection("Overlays")
+	addRow("<Control>h", "Show this help")
+	addRow("Escape",     "Close overlay / dismiss")
+
+	scroll.SetChild(grid)
+	content.Append(scroll)
+
+	card := a.buildOverlayCard("Keyboard Shortcuts", 480, content)
+	a.showOverlay(card)
+}
+
 func (a *App) openConflictPanel() {
 	if a.state == nil {
 		return
@@ -3520,6 +3603,76 @@ func (a *App) setupHotkeys() {
 			a.openPathDialog()
 			return true
 		}
+		if match(a.cfg.Hotkeys.Help) {
+		    a.openHelpPanel()
+		    return true
+		}
+		if match(a.cfg.Hotkeys.StageAll) {
+			a.runGitOp("Staging all…", "Staged all changes", StageAll)
+			return true
+		}
+		if match(a.cfg.Hotkeys.Diff) {
+			if a.state != nil && a.selectedFile != "" {
+				OpenInDiffTool(a.state.Path, a.selectedFile)
+			}
+			return true
+		}
+		if match(a.cfg.Hotkeys.Edit) {
+			if a.state != nil && a.selectedFile != "" {
+				OpenInEditor(a.state.Path, a.selectedFile, a.cfg.Behavior.EditorCommand)
+			}
+			return true
+		}
+		if match(a.cfg.Hotkeys.UnstageAll) {
+			a.runGitOp("Unstaging all…", "Unstaged all changes", UnstageAll)
+			return true
+		}
+		if match(a.cfg.Hotkeys.RevertAll) {
+			a.runGitOpSafe("Reverting all…", "Reverted all changes", RevertAllUnstaged)
+			return true
+		}
+		if match(a.cfg.Hotkeys.PushForce) {
+			a.runGitOpSafe("Pushing (force)…", "Push complete", PushForce)
+			return true
+		}
+		if match(a.cfg.Hotkeys.Sync) {
+			a.runGitOpSafe("Syncing…", "Sync complete", Sync)
+			return true
+		}
+		if match(a.cfg.Hotkeys.CopyHash) {
+			if a.selectedCommit != "" {
+				clipboard := a.win.Clipboard()
+				clipboard.SetText(a.selectedCommit)
+				a.setInfoOk("Copied " + a.selectedCommit[:8])
+			}
+			return true
+		}
+		if match(a.cfg.Hotkeys.JumpTo) {
+			a.promptDialog("Jump to Commit", "Hash or ref", "", func(val string) {
+				a.jumpToCommit(val)
+			})
+			return true
+		}
+		if match(a.cfg.Hotkeys.NewBranch) {
+			a.openNewBranchDialog()
+			return true
+		}
+		if match(a.cfg.Hotkeys.Stash) {
+			if a.state != nil {
+				a.runGitOp("Stashing…", "Stash saved", func(repo string) error {
+					return StashSave(repo, "")
+				})
+			}
+			return true
+		}
+		if match(a.cfg.Hotkeys.StashPop) {
+			if a.state != nil {
+				a.runGitOp("Popping stash…", "Stash popped", func(repo string) error {
+					return StashPop(repo, 0)
+				})
+			}
+			return true
+		}
 
 		return false
 	})
@@ -3973,8 +4126,30 @@ func (a *App) loadCommitDiff(hash string) {
 	}()
 }
 
-func (a *App) markSelectedRow(list *gtk.ListBox, row *gtk.ListBoxRow) {
-	if list == a.fileListBox {
+func (a *App) jumpToCommit(hash string) {
+	if a.state == nil {
+		return
+	}
+	hash = strings.TrimSpace(hash)
+	if hash == "" {
+		return
+	}
+	for i, c := range a.state.Commits {
+		if strings.HasPrefix(c.Hash, hash) || strings.HasPrefix(c.ShortHash, hash) {
+			row := a.commitListBox.RowAtIndex(i)
+			if row != nil {
+				a.commitListBox.SelectRow(row)
+				row.GrabFocus()
+				return
+			}
+		}
+	}
+	a.setInfoErr("Commit not found in current log")
+}
+
+func (a *App) markSelectedRow(lb *gtk.ListBox, row *gtk.ListBoxRow) {
+
+	if lb == a.fileListBox {
 		if a.selectedFileRow != nil {
 			a.selectedFileRow.RemoveCSSClass("selected")
 		}
@@ -3982,7 +4157,7 @@ func (a *App) markSelectedRow(list *gtk.ListBox, row *gtk.ListBoxRow) {
 		a.selectedFileRow = row
 		return
 	}
-	if list == a.commitListBox {
+	if lb == a.commitListBox {
 		if a.selectedCommitRow != nil {
 			a.selectedCommitRow.RemoveCSSClass("selected")
 		}

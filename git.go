@@ -952,6 +952,34 @@ func OpenInEditor(repoPath, filePath, editorCmd string) {
 	}
 	cmd.Start()
 }
+
+func OpenInDiffTool(repoPath, filePath string) {
+	cmd := exec.Command("git", "-C", repoPath, "difftool", "-y", filePath)
+	cmd.Start()
+}
+
+func UnstageAll(repoPath string) error {
+	_, err := gitCmd(repoPath, "reset")
+	return err
+}
+
+func RevertAllUnstaged(repoPath string) error {
+	_, err := gitCmd(repoPath, "checkout", "--", ".")
+	return err
+}
+
+func PushForce(repoPath string) error {
+	_, err := gitCmd(repoPath, "push", "--force-with-lease")
+	return err
+}
+
+func Sync(repoPath string) error {
+	if _, err := gitCmd(repoPath, "fetch", "--all"); err != nil {
+		return err
+	}
+	_, err := gitCmd(repoPath, "pull")
+	return err
+}
 func CheckoutCommit(repoPath, hash string) error {
 	_, err := gitCmd(repoPath, "checkout", hash)
 	return err

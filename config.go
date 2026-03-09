@@ -31,6 +31,19 @@ type HotkeysConfig struct {
 	ToggleSplit  string `toml:"toggle_split"`
 	Search       string `toml:"search"`
 	OpenDir      string `toml:"open_dir"`
+	Help string `toml:"help"`
+	StageAll string `toml:"stage_all"`
+	Diff string `toml:"diff"`
+	Edit string `toml:"edit"`
+	UnstageAll string `toml:"unstage_all"`
+	RevertAll string `toml:"revert_all"`
+	PushForce string `toml:"push_force"`
+	Sync string `toml:"sync"`
+	CopyHash string `toml:"copy_hash"`
+	JumpTo string `toml:"jump_to"`
+	NewBranch string `toml:"new_branch"`
+	Stash string `toml:"stash"`
+	StashPop string `toml:"stash_pop"`
 }
 
 type AppearanceConfig struct {
@@ -133,6 +146,19 @@ func DefaultConfig() Config {
 			ToggleSplit: "<Control>t",
 			Search:      "slash",
 			OpenDir:     "<Control>o",
+			Help: "<Control>h",
+			StageAll: "<Control>a",
+			Diff: "<Control>d",
+			Edit: "<Control>e",
+			UnstageAll: "<Control>z",
+			RevertAll: "<Control><Shift>z",
+			PushForce: "<Control><Shift>p",
+			Sync: "<Control><Shift>f",
+			CopyHash: "<Control><Shift>c",
+			JumpTo: "<Control>g",
+			NewBranch: "<Control>n",
+			Stash: "<Control>s",
+			StashPop: "<Control><Shift>s",
 		},
 	}
 }
