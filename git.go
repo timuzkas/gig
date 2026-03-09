@@ -57,6 +57,7 @@ type BranchInfo struct {
 	Ahead      int
 	Behind     int
 	IsRemote   bool
+	IsTag      bool
 }
 
 type RemoteInfo struct {
@@ -79,16 +80,17 @@ type StashEntry struct {
 }
 
 type RepoState struct {
-	Path     string
-	Name     string
-	Branch   string
-	Commits  []Commit
-	Files    []FileStatus
-	Branches []BranchInfo
-	Remotes  []RemoteInfo
-	Stashes  []StashEntry
-	Ahead    int
-	Behind   int
+	Path            string
+	Name            string
+	Branch          string
+	Commits         []Commit
+	Files           []FileStatus
+	Branches        []BranchInfo
+	Remotes         []RemoteInfo
+	Stashes         []StashEntry
+	Ahead           int
+	Behind          int
+	FileHistoryPath string
 }
 
 type ConflictKind string
@@ -367,9 +369,9 @@ func GetCurrentBranch(repoPath string) string {
 func GetBranches(repoPath string) []BranchInfo {
 	out, err := gitCmd(
 		repoPath,
-		"branch",
-		"-a",
-		"--format=%(HEAD)|%(refname:short)|%(upstream:short)|%(objectname:short)|%(subject)|%(authordate:relative)|%(upstream:track,nobracket)",
+		"for-each-ref",
+		"--format=%(HEAD)|%(refname)|%(upstream:short)|%(objectname:short)|%(subject)|%(authordate:relative)|%(upstream:track,nobracket)",
+		"refs/heads", "refs/remotes", "refs/tags",
 	)
 	if err != nil {
 		return nil
@@ -388,18 +390,26 @@ func GetBranches(repoPath string) []BranchInfo {
 			continue
 		}
 
-		name := strings.TrimSpace(parts[1])
-		if strings.Contains(name, " -> ") {
-			continue
+		fullName := strings.TrimSpace(parts[1])
+		name := fullName
+		isRemote := false
+		isTag := false
+
+		if strings.HasPrefix(fullName, "refs/heads/") {
+			name = strings.TrimPrefix(fullName, "refs/heads/")
+		} else if strings.HasPrefix(fullName, "refs/remotes/") {
+			name = strings.TrimPrefix(fullName, "refs/remotes/")
+			isRemote = true
+		} else if strings.HasPrefix(fullName, "refs/tags/") {
+			name = strings.TrimPrefix(fullName, "refs/tags/")
+			isTag = true
 		}
 
 		b := BranchInfo{
 			Current:  strings.TrimSpace(parts[0]) == "*",
 			Name:     name,
-			IsRemote: strings.HasPrefix(name, "remotes/"),
-		}
-		if b.IsRemote {
-			b.Name = strings.TrimPrefix(b.Name, "remotes/")
+			IsRemote: isRemote,
+			IsTag:    isTag,
 		}
 		if len(parts) > 2 {
 			b.Remote = strings.TrimSpace(parts[2])
@@ -521,16 +531,20 @@ func GetAheadBehind(repoPath string) (int, int) {
 	return ahead, behind
 }
 
-func GetLog(repoPath string, max int) []Commit {
-	out, err := gitCmd(
-		repoPath,
+func GetLog(repoPath string, max int, fileFilter string) []Commit {
+	args := []string{
 		"log",
 		"--graph",
 		"--all",
 		fmt.Sprintf("--max-count=%d", max),
 		"--date=iso-strict",
 		"--format=§%H§%h§%s§%an§%ae§%aI§%ar§%D§%P",
-	)
+	}
+	if fileFilter != "" {
+		args = append(args, "--", fileFilter)
+	}
+
+	out, err := gitCmd(repoPath, args...)
 	if err != nil {
 		return nil
 	}
@@ -687,8 +701,11 @@ func StashShow(repoPath string, index int) string {
 	return out
 }
 
-func GetFileDiff(repoPath, filePath string, staged bool) string {
+func GetFileDiff(repoPath, filePath string, staged bool, wordDiff bool) string {
 	args := []string{"diff", "--no-color"}
+	if wordDiff {
+		args = append(args, "--word-diff=plain")
+	}
 	if staged {
 		args = append(args, "--cached")
 	}
@@ -701,8 +718,13 @@ func GetFileDiff(repoPath, filePath string, staged bool) string {
 	return out
 }
 
-func GetCommitDiff(repoPath, hash string) string {
-	out, err := gitCmd(repoPath, "show", "--no-color", "--patch", "--format=", hash)
+func GetCommitDiff(repoPath, hash string, wordDiff bool) string {
+	args := []string{"show", "--no-color", "--patch", "--format="}
+	if wordDiff {
+		args = append(args, "--word-diff=plain")
+	}
+	args = append(args, hash)
+	out, err := gitCmd(repoPath, args...)
 	if err != nil {
 		return ""
 	}
@@ -783,7 +805,7 @@ func Fetch(repoPath string) error {
 	return err
 }
 
-func LoadRepoState(repoPath string, maxCommits int) *RepoState {
+func LoadRepoState(repoPath string, maxCommits int, fileFilter string) *RepoState {
 	root, err := FindRepoRoot(repoPath)
 	if err != nil {
 		return nil
@@ -792,16 +814,17 @@ func LoadRepoState(repoPath string, maxCommits int) *RepoState {
 	ahead, behind := GetAheadBehind(root)
 
 	return &RepoState{
-		Path:     root,
-		Name:     filepath.Base(root),
-		Branch:   GetCurrentBranch(root),
-		Commits:  GetLog(root, maxCommits),
-		Files:    GetStatus(root),
-		Branches: GetBranches(root),
-		Remotes:  GetRemotes(root),
-		Stashes:  GetStashes(root),
-		Ahead:    ahead,
-		Behind:   behind,
+		Path:            root,
+		Name:            filepath.Base(root),
+		Branch:          GetCurrentBranch(root),
+		Commits:         GetLog(root, maxCommits, fileFilter),
+		Files:           GetStatus(root),
+		Branches:        GetBranches(root),
+		Remotes:         GetRemotes(root),
+		Stashes:         GetStashes(root),
+		Ahead:           ahead,
+		Behind:          behind,
+		FileHistoryPath: fileFilter,
 	}
 }
 
@@ -928,6 +951,16 @@ func UnignoreFile(repoPath, filePath string) error {
 
 func AmendCommit(repoPath, newMessage string) error {
 	_, err := gitCmd(repoPath, "commit", "--amend", "-m", newMessage)
+	return err
+}
+
+func CreateTag(repoPath, name, commit string) error {
+	_, err := gitCmd(repoPath, "tag", name, commit)
+	return err
+}
+
+func DeleteTag(repoPath, name string) error {
+	_, err := gitCmd(repoPath, "tag", "-d", name)
 	return err
 }
 

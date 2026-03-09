@@ -22,6 +22,11 @@ import (
 //go:embed style.css
 var defaultCSS string
 
+type fileRowInfo struct {
+	f      FileStatus
+	staged bool
+}
+
 type App struct {
 	cfg   Config
 	app   *gtk.Application
@@ -117,18 +122,28 @@ type App struct {
 	
 	conflictHunkStarts []int
 	conflictHunkEnds   []int
+
+	fileRowData map[*gtk.ListBoxRow]fileRowInfo
+
+	fileHistoryPath string
+	fileHistoryLabel *gtk.Label
+	filterClearBtn   *gtk.Button
+	wordDiff        bool
+	amendMode       bool
+	searchEntryDiff *gtk.SearchEntry
 }
 
 func NewApp(cfg Config) *App {
-    a := &App{cfg: cfg}
-    a.repos = DiscoverRepos(
-        cfg.Repos.Paths,
-        cfg.Behavior.ScanParentOnStart,
-        cfg.Repos.StarredPaths,
-        cfg.Repos.StarredOnly,
-    )
-    a.conflictDrafts = make(map[string]string)
-    return a
+	a := &App{cfg: cfg}
+	a.repos = DiscoverRepos(
+		cfg.Repos.Paths,
+		cfg.Behavior.ScanParentOnStart,
+		cfg.Repos.StarredPaths,
+		cfg.Repos.StarredOnly,
+	)
+	a.conflictDrafts = make(map[string]string)
+	a.fileRowData = make(map[*gtk.ListBoxRow]fileRowInfo)
+	return a
 }
 
 func (a *App) Run() {
@@ -636,6 +651,7 @@ func (a *App) promptDialog(title, placeholder, initial string, onOK func(string)
 	entry := gtk.NewEntry()
 	entry.SetPlaceholderText(placeholder)
 	entry.SetText(initial)
+	a.stopInputPropagation(entry)
 	content.Append(entry)
 
 	btnRow := gtk.NewBox(gtk.OrientationHorizontal, 8)
@@ -1443,6 +1459,7 @@ func (a *App) buildHeader() *gtk.HeaderBar {
 	a.searchEntry.SetTooltipText("Search commits" + a.formatAccel(a.cfg.Hotkeys.Search))
 	a.searchEntry.SetWidthChars(24)
 	a.searchEntry.ConnectSearchChanged(func() { a.populateCommits() })
+	a.stopInputPropagation(a.searchEntry)
 	right.Append(a.searchEntry)
 
 	refreshBtn := gtk.NewButtonWithLabel("↺")
@@ -1652,7 +1669,22 @@ func (a *App) buildFileSidebar() *gtk.Box {
 	scroll.SetVExpand(true)
 
 	a.fileListBox = gtk.NewListBox()
-	a.fileListBox.SetSelectionMode(gtk.SelectionNone)
+	a.fileListBox.SetSelectionMode(gtk.SelectionSingle)
+	a.fileListBox.ConnectRowSelected(func(row *gtk.ListBoxRow) {
+		if row == nil || a.state == nil {
+			return
+		}
+		if !row.Selectable() {
+			return
+		}
+		if info, ok := a.fileRowData[row]; ok {
+			a.selectedFile = info.f.Path
+			a.selectedFileMode = info.staged
+			a.selectedCommit = ""
+			a.loadFileDiff(info.f.Path, info.staged)
+			a.markSelectedRow(a.fileListBox, row)
+		}
+	})
 	scroll.SetChild(a.fileListBox)
 	box.Append(scroll)
 	return box
@@ -1707,6 +1739,21 @@ func (a *App) buildContentArea() *gtk.Box {
 	a.infoLabel.SetEllipsize(3)
 	a.infoLabel.SetMaxWidthChars(60)
 	infoBar.Append(a.infoLabel)
+
+	a.fileHistoryLabel = gtk.NewLabel("")
+	a.fileHistoryLabel.SetVisible(false)
+	a.fileHistoryLabel.AddCSSClass("filter-label")
+	infoBar.Append(a.fileHistoryLabel)
+
+	a.filterClearBtn = gtk.NewButtonWithLabel("Clear")
+	a.filterClearBtn.SetVisible(false)
+	a.filterClearBtn.AddCSSClass("flat")
+	a.filterClearBtn.AddCSSClass("filter-clear-btn")
+	a.filterClearBtn.ConnectClicked(func() {
+		a.fileHistoryPath = ""
+		a.doReload(true)
+	})
+	infoBar.Append(a.filterClearBtn)
 
 	box.Append(infoBar)
 
@@ -1806,6 +1853,34 @@ func (a *App) buildLogAndDiff() *gtk.Paned {
 	})
 	diffToolbar.Append(a.copyHashBtn)
 
+	wordDiffBtn := gtk.NewButtonWithLabel("Word Diff")
+	wordDiffBtn.AddCSSClass("flat")
+	wordDiffBtn.AddCSSClass("diff-toggle-btn")
+	wordDiffBtn.ConnectClicked(func() {
+		a.wordDiff = !a.wordDiff
+		if a.wordDiff {
+			wordDiffBtn.AddCSSClass("active")
+		} else {
+			wordDiffBtn.RemoveCSSClass("active")
+		}
+		if a.selectedCommit != "" {
+			a.loadCommitDiff(a.selectedCommit)
+		} else if a.selectedFile != "" {
+			a.loadFileDiff(a.selectedFile, a.selectedFileMode)
+		}
+	})
+	diffToolbar.Append(wordDiffBtn)
+
+	a.searchEntryDiff = gtk.NewSearchEntry()
+	a.searchEntryDiff.SetPlaceholderText("Search in diff…")
+	a.searchEntryDiff.AddCSSClass("diff-search-entry")
+	a.searchEntryDiff.SetHExpand(true)
+	a.searchEntryDiff.ConnectChanged(func() {
+		a.searchInDiff(a.searchEntryDiff.Text())
+	})
+	a.stopInputPropagation(a.searchEntryDiff)
+	diffToolbar.Append(a.searchEntryDiff)
+
 	diffContainer.Append(diffToolbar)
 
 	a.commitHeader = gtk.NewBox(gtk.OrientationVertical, 0)
@@ -1897,8 +1972,25 @@ func (a *App) buildLogAndDiff() *gtk.Paned {
 func (a *App) buildBranchesView() *gtk.Box {
 	box := gtk.NewBox(gtk.OrientationVertical, 0)
 
-	newBranchBtn := gtk.NewButtonWithLabel("+ New")
+	newBranchBtn := gtk.NewButtonWithLabel("+ Branch")
 	newBranchBtn.ConnectClicked(func() { a.openNewBranchDialog() })
+
+	newTagBtn := gtk.NewButtonWithLabel("+ Tag")
+	newTagBtn.ConnectClicked(func() {
+		if a.state == nil || len(a.state.Commits) == 0 {
+			return
+		}
+		var latest *Commit
+		for i := range a.state.Commits {
+			if a.state.Commits[i].IsCommit {
+				latest = &a.state.Commits[i]
+				break
+			}
+		}
+		if latest != nil {
+			a.showCreateTagDialog(*latest)
+		}
+	})
 
 	toolbar := gtk.NewBox(gtk.OrientationHorizontal, 6)
 	toolbar.SetMarginTop(10)
@@ -1911,8 +2003,10 @@ func (a *App) buildBranchesView() *gtk.Box {
 	a.branchSearch.SetTooltipText("Filter branches" + a.formatAccel(a.cfg.Hotkeys.Branch))
 	a.branchSearch.SetHExpand(true)
 	a.branchSearch.ConnectSearchChanged(func() { a.populateBranches() })
+	a.stopInputPropagation(a.branchSearch)
 	toolbar.Append(a.branchSearch)
 	toolbar.Append(newBranchBtn)
+	toolbar.Append(newTagBtn)
 	box.Append(toolbar)
 
 	scroll := gtk.NewScrolledWindow()
@@ -1935,6 +2029,17 @@ func (a *App) buildCommitStrip() *gtk.Box {
 	a.commitEntry.SetPlaceholderText("Commit message…")
 	a.commitEntry.SetHExpand(true)
 	a.commitEntry.ConnectChanged(func() { a.updateCommitButton() })
+	a.stopInputPropagation(a.commitEntry)
+
+	key := gtk.NewEventControllerKey()
+	key.ConnectKeyPressed(func(keyval uint, keycode uint, state gdk.ModifierType) bool {
+		if keyval == gdk.KEY_Escape && a.amendMode {
+			a.cancelAmend()
+			return true
+		}
+		return false
+	})
+	a.commitEntry.AddController(key)
 	box.Append(a.commitEntry)
 
 	a.commitButton = gtk.NewButtonWithLabel("Commit")
@@ -1949,19 +2054,33 @@ func (a *App) buildCommitStrip() *gtk.Box {
 		if msg == "" {
 			return
 		}
-		a.setInfo("Committing…")
-		go func(repo, message string) {
-			err := DoCommit(repo, message)
+		
+		isAmend := a.amendMode
+		a.setInfo(map[bool]string{true: "Amending…", false: "Committing…"}[isAmend])
+		
+		go func(repo, message string, amend bool) {
+			var err error
+			if amend {
+				err = AmendCommit(repo, message)
+			} else {
+				err = DoCommit(repo, message)
+			}
+			
 			glib.IdleAdd(func() {
 				if err != nil {
 					a.setInfoErr(err.Error())
-					return
+				} else {
+					a.commitEntry.SetText("")
+					if amend {
+						a.cancelAmend()
+						a.setInfoOk("Amended")
+					} else {
+						a.setInfoOk("Committed")
+					}
+					a.doReload(true)
 				}
-				a.commitEntry.SetText("")
-				a.setInfoOk("Committed")
-				a.doReload(true)
 			})
-		}(a.state.Path, msg)
+		}(a.state.Path, msg, isAmend)
 	})
 	box.Append(a.commitButton)
 	return box
@@ -2170,8 +2289,9 @@ func (a *App) reloadStateAsync(showDefault bool) {
 	}
 	repoPath := a.selectedRepoPath
 	max := a.cfg.Behavior.MaxCommits
+	fileFilter := a.fileHistoryPath
 	go func() {
-		ns := LoadRepoState(repoPath, max)
+		ns := LoadRepoState(repoPath, max, fileFilter)
 		glib.IdleAdd(func() {
 			if ns == nil {
 				a.stack.SetVisibleChildName("empty")
@@ -2187,7 +2307,7 @@ func (a *App) reloadState(showDefault bool) {
 	if a.selectedRepoPath == "" {
 		return
 	}
-	ns := LoadRepoState(a.selectedRepoPath, a.cfg.Behavior.MaxCommits)
+	ns := LoadRepoState(a.selectedRepoPath, a.cfg.Behavior.MaxCommits, a.fileHistoryPath)
 	if ns == nil {
 		a.stack.SetVisibleChildName("empty")
 		a.emptyLabel.SetText("Failed to load repository")
@@ -2195,12 +2315,21 @@ func (a *App) reloadState(showDefault bool) {
 	}
 	a.applyState(ns, showDefault)
 }
-
 func (a *App) applyState(ns *RepoState, showDefault bool) {
 	commitsChanged := a.commitsChanged(ns.Commits)
 	filesChanged := a.filesChanged(ns.Files)
 	branchesChanged := a.branchesChanged(ns.Branches)
 	a.state = ns
+	a.fileHistoryPath = ns.FileHistoryPath
+
+	if ns.FileHistoryPath != "" {
+		a.fileHistoryLabel.SetText("File: " + ns.FileHistoryPath)
+		a.fileHistoryLabel.SetVisible(true)
+		a.filterClearBtn.SetVisible(true)
+	} else {
+		a.fileHistoryLabel.SetVisible(false)
+		a.filterClearBtn.SetVisible(false)
+	}
 
 	if branchesChanged {
 		a.populateBranches()
@@ -2395,6 +2524,7 @@ func (a *App) syncBranchDrop() {
 func (a *App) populateFiles() {
 	clearListBox(a.fileListBox)
 	a.selectedFileRow = nil
+	a.fileRowData = make(map[*gtk.ListBoxRow]fileRowInfo)
 
 	if a.state == nil {
 		return
@@ -2494,8 +2624,13 @@ func (a *App) showFileContextMenu(relativeTo gtk.Widgetter, f FileStatus, staged
 		})
 	}
 
-	addItem("Diff Changes", false, func() {
+		addItem("Diff Changes", false, func() {
 		a.loadFileDiff(f.Path, staged)
+	})
+
+	addItem("File History", false, func() {
+		a.fileHistoryPath = f.Path
+		a.doReload(true)
 	})
 
 	addItem("Stash this file", false, func() {
@@ -2617,6 +2752,7 @@ func (a *App) appendFileSection(title string, files []FileStatus, staged bool) {
 			}
 		})
 		row.AddController(click)
+		a.fileRowData[row] = fileRowInfo{f: f, staged: staged}
 		a.fileListBox.Append(row)
 	}
 }
@@ -2715,8 +2851,12 @@ func (a *App) populateCommits() {
 		row.SetChild(box)
 
 		click := gtk.NewGestureClick()
-		click.ConnectReleased(func(_ int, _, _ float64) {
+		click.ConnectReleased(func(n int, _, _ float64) {
 			if a.state == nil {
+				return
+			}
+			if n == 2 {
+				a.startAmend(c)
 				return
 			}
 			a.selectedCommit = c.Hash
@@ -2814,6 +2954,12 @@ func (a *App) showCommitContextMenu(relativeTo gtk.Widgetter, c Commit) {
 		destructive bool
 		fn          func()
 	}{
+		{"Amend Commit", false, func() {
+			a.startAmend(c)
+		}},
+		{"Create Tag", false, func() {
+			a.showCreateTagDialog(c)
+		}},
 		{"Checkout " + c.ShortHash, false, func() {
 			a.runGitOpSafe(
 				"Checking out...",
@@ -2907,12 +3053,14 @@ func (a *App) populateBranches() {
 	}
 	filter := strings.ToLower(strings.TrimSpace(a.branchSearch.Text()))
 
-	var local, remote []BranchInfo
+	var local, remote, tags []BranchInfo
 	for _, b := range a.state.Branches {
 		if filter != "" && !strings.Contains(strings.ToLower(b.Name), filter) {
 			continue
 		}
-		if b.IsRemote {
+		if b.IsTag {
+			tags = append(tags, b)
+		} else if b.IsRemote {
 			remote = append(remote, b)
 		} else {
 			local = append(local, b)
@@ -2921,11 +3069,14 @@ func (a *App) populateBranches() {
 	if len(local) > 0 {
 		a.appendBranchSection("Local", local)
 	}
+	if len(tags) > 0 {
+		a.appendBranchSection("Tags", tags)
+	}
 	if len(remote) > 0 {
 		a.appendBranchSection("Remote", remote)
 	}
-	if len(local)+len(remote) == 0 {
-		a.branchListBox.Append(a.makePlaceholderRow("No branches match"))
+	if len(local)+len(remote)+len(tags) == 0 {
+		a.branchListBox.Append(a.makePlaceholderRow("No matches"))
 	}
 }
 
@@ -3011,7 +3162,36 @@ func (a *App) appendBranchSection(title string, branches []BranchInfo) {
 		acts := gtk.NewBox(gtk.OrientationHorizontal, 4)
 		acts.SetVAlign(gtk.AlignCenter)
 
-		if !b.Current && !b.IsRemote {
+		if b.IsTag {
+			coBtn := gtk.NewButtonWithLabel("Checkout")
+			coBtn.AddCSSClass("flat")
+			coBtn.ConnectClicked(func() {
+				a.confirmDialog("Checkout Tag", "Checkout tag "+b.Name+"? (Detached HEAD)", false, func() {
+					err := Checkout(a.state.Path, b.Name)
+					if err != nil {
+						a.setInfoErr(err.Error())
+					} else {
+						a.doReload(true)
+					}
+				})
+			})
+			acts.Append(coBtn)
+
+			delBtn := gtk.NewButtonWithLabel("Delete")
+			delBtn.AddCSSClass("flat")
+			delBtn.AddCSSClass("destructive-action")
+			delBtn.ConnectClicked(func() {
+				a.confirmDialog("Delete Tag", "Are you sure you want to delete tag "+b.Name+"?", true, func() {
+					err := DeleteTag(a.state.Path, b.Name)
+					if err != nil {
+						a.setInfoErr(err.Error())
+					} else {
+						a.doReload(false)
+					}
+				})
+			})
+			acts.Append(delBtn)
+		} else if !b.Current && !b.IsRemote {
 			coBtn := gtk.NewButtonWithLabel("Checkout")
 			coBtn.AddCSSClass("flat") 
 			            
@@ -3463,10 +3643,12 @@ func (a *App) openRepoConfigPanel() {
 	addName := gtk.NewEntry()
 	addName.SetPlaceholderText("name")
 	addName.SetSizeRequest(110, -1)
+	a.stopInputPropagation(addName)
 
 	addURL := gtk.NewEntry()
 	addURL.SetPlaceholderText("url")
 	addURL.SetHExpand(true)
+	a.stopInputPropagation(addURL)
 
 	addBtn := gtk.NewButtonWithLabel("Add")
 	addBtn.AddCSSClass("suggested-action")
@@ -3507,7 +3689,8 @@ func (a *App) openNewBranchDialog() {
 	content.SetMarginEnd(16)
 
 	entry := gtk.NewEntry()
-	entry.SetPlaceholderText("Branch name")
+	entry.SetPlaceholderText("branch-name")
+	a.stopInputPropagation(entry)
 	content.Append(entry)
 
 	btnRow := gtk.NewBox(gtk.OrientationHorizontal, 8)
@@ -3671,20 +3854,30 @@ func (a *App) setupHotkeys() {
 
 			cleanState := state & (gdk.ControlMask | gdk.ShiftMask | gdk.AltMask)
 			
-			if (cleanState & (gdk.ControlMask | gdk.AltMask)) == 0 {
-				focus := a.win.Focus()
-				if focus != nil {
-					_, isEntry := focus.(*gtk.Entry)
-					_, isSearch := focus.(*gtk.SearchEntry)
-					_, isTextView := focus.(*gtk.TextView)
-					if isEntry || isSearch || isTextView {
+			focus := a.win.Focus()
+			if focus != nil {
+				_, isEntry := focus.(*gtk.Entry)
+				_, isSearch := focus.(*gtk.SearchEntry)
+				_, isTextView := focus.(*gtk.TextView)
+				if isEntry || isSearch || isTextView {
+					if (cleanState & (gdk.ControlMask | gdk.AltMask)) == 0 {
 						return false
+					}
+					if cleanState == gdk.ControlMask || cleanState == (gdk.ControlMask|gdk.ShiftMask) {
+						switch keyval {
+						case uint(gdk.KEY_a), uint(gdk.KEY_A),
+							uint(gdk.KEY_c), uint(gdk.KEY_C),
+							uint(gdk.KEY_v), uint(gdk.KEY_V),
+							uint(gdk.KEY_x), uint(gdk.KEY_X),
+							uint(gdk.KEY_z), uint(gdk.KEY_Z),
+							uint(gdk.KEY_y), uint(gdk.KEY_Y):
+							return false
+						}
 					}
 				}
 			}
 
 			if cleanState == gdk.ControlMask {
-			    focus := a.win.Focus()
 			    if focus != nil {
 			        if entry, ok := focus.(*gtk.Entry); ok && entry == a.commitEntry {
 			            kv, _ := parseAccel(a.cfg.Hotkeys.Commit)
@@ -4099,6 +4292,11 @@ func (a *App) splitDiffByFile(diff string) []fileDiff {
 func (a *App) appendDiffToBuffer(buf *gtk.TextBuffer, diff string) {
 	lines := strings.Split(strings.TrimSuffix(diff, "\n"), "\n")
 	for _, line := range lines {
+		if a.wordDiff && (strings.Contains(line, "[-") || strings.Contains(line, "{+")) {
+			a.renderWordDiffLineUnified(buf, line)
+			continue
+		}
+
 		tag := a.getDiffTag(line)
 		iter := buf.EndIter()
 		offset := iter.Offset()
@@ -4117,6 +4315,37 @@ func (a *App) appendDiffToBuffer(buf *gtk.TextBuffer, diff string) {
 	}
 }
 
+func (a *App) renderWordDiffLineUnified(buf *gtk.TextBuffer, line string) {
+	i := 0
+	for i < len(line) {
+		if strings.HasPrefix(line[i:], "[-") {
+			end := strings.Index(line[i:], "-]")
+			if end != -1 && end >= 2 {
+				text := line[i+2 : i+end]
+				off := buf.EndIter().Offset()
+				buf.Insert(buf.EndIter(), text)
+				buf.ApplyTagByName("removed", buf.IterAtOffset(off), buf.EndIter())
+				i += end + 2
+				continue
+			}
+		}
+		if strings.HasPrefix(line[i:], "{+") {
+			end := strings.Index(line[i:], "+}")
+			if end != -1 && end >= 2 {
+				text := line[i+2 : i+end]
+				off := buf.EndIter().Offset()
+				buf.Insert(buf.EndIter(), text)
+				buf.ApplyTagByName("added", buf.IterAtOffset(off), buf.EndIter())
+				i += end + 2
+				continue
+			}
+		}
+		buf.Insert(buf.EndIter(), string(line[i]))
+		i++
+	}
+	buf.Insert(buf.EndIter(), "\n")
+}
+
 func (a *App) renderSplitDiff(diff string) {
 	a.diffBufLeft.SetText("")
 	a.diffBufRight.SetText("")
@@ -4129,6 +4358,12 @@ func (a *App) renderSplitDiff(diff string) {
 
 	lines := strings.Split(diff, "\n")
 	for _, line := range lines {
+		if a.wordDiff && (strings.Contains(line, "[-") || strings.Contains(line, "{+")) {
+			// Parse word diff line
+			a.renderWordDiffLineSplit(line)
+			continue
+		}
+
 		tag := a.getDiffTag(line)
 		iterL := a.diffBufLeft.EndIter()
 		iterR := a.diffBufRight.EndIter()
@@ -4166,6 +4401,41 @@ func (a *App) renderSplitDiff(diff string) {
 			a.diffBufRight.Insert(iterR, text+"\n")
 		}
 	}
+}
+
+func (a *App) renderWordDiffLineSplit(line string) {
+	// Simple parser for [-...-] and {+...+}
+	i := 0
+	for i < len(line) {
+		if strings.HasPrefix(line[i:], "[-") {
+			end := strings.Index(line[i:], "-]")
+			if end != -1 {
+				text := line[i+2 : i+end]
+				off := a.diffBufLeft.EndIter().Offset()
+				a.diffBufLeft.Insert(a.diffBufLeft.EndIter(), text)
+				a.diffBufLeft.ApplyTagByName("removed", a.diffBufLeft.IterAtOffset(off), a.diffBufLeft.EndIter())
+				i += end + 2
+				continue
+			}
+		}
+		if strings.HasPrefix(line[i:], "{+") {
+			end := strings.Index(line[i:], "+}")
+			if end != -1 {
+				text := line[i+2 : i+end]
+				off := a.diffBufRight.EndIter().Offset()
+				a.diffBufRight.Insert(a.diffBufRight.EndIter(), text)
+				a.diffBufRight.ApplyTagByName("added", a.diffBufRight.IterAtOffset(off), a.diffBufRight.EndIter())
+				i += end + 2
+				continue
+			}
+		}
+		// Normal char
+		a.diffBufLeft.Insert(a.diffBufLeft.EndIter(), string(line[i]))
+		a.diffBufRight.Insert(a.diffBufRight.EndIter(), string(line[i]))
+		i++
+	}
+	a.diffBufLeft.Insert(a.diffBufLeft.EndIter(), "\n")
+	a.diffBufRight.Insert(a.diffBufRight.EndIter(), "\n")
 }
 
 func (a *App) getDiffTag(line string) string {
@@ -4234,14 +4504,15 @@ func (a *App) loadFileDiff(path string, staged bool) {
 		a.copyHashBtn.SetVisible(false)
 	}
 	if !a.cfg.Features.AsyncDiffLoading {
-		a.renderDiff(GetFileDiff(a.state.Path, path, staged))
+		a.renderDiff(GetFileDiff(a.state.Path, path, staged, a.wordDiff))
 		return
 	}
 	id := a.nextDiffRequestID()
 	repo := a.state.Path
+	wd := a.wordDiff
 	a.renderDiff("Loading…")
 	go func() {
-		d := GetFileDiff(repo, path, staged)
+		d := GetFileDiff(repo, path, staged, wd)
 		glib.IdleAdd(func() {
 			if id == atomic.LoadUint64(&a.diffReqID) {
 				a.renderDiff(d)
@@ -4275,14 +4546,15 @@ func (a *App) loadCommitDiff(hash string) {
 	}
 
 	if !a.cfg.Features.AsyncDiffLoading {
-		a.renderDiff(GetCommitDiff(a.state.Path, hash))
+		a.renderDiff(GetCommitDiff(a.state.Path, hash, a.wordDiff))
 		return
 	}
 	id := a.nextDiffRequestID()
 	repo := a.state.Path
+	wd := a.wordDiff
 	a.renderDiff("Loading…")
 	go func() {
-		d := GetCommitDiff(repo, hash)
+		d := GetCommitDiff(repo, hash, wd)
 		glib.IdleAdd(func() {
 			if id == atomic.LoadUint64(&a.diffReqID) {
 				a.renderDiff(d)
@@ -4310,6 +4582,105 @@ func (a *App) jumpToCommit(hash string) {
 		}
 	}
 	a.setInfoErr("Commit not found in current log")
+}
+
+func (a *App) searchInDiff(text string) {
+	if text == "" {
+		return
+	}
+	text = strings.ToLower(text)
+	
+	searchBuf := func(buf *gtk.TextBuffer) bool {
+		content := strings.ToLower(buf.Text(buf.StartIter(), buf.EndIter(), false))
+		idx := strings.Index(content, text)
+		if idx != -1 {
+			iter := buf.IterAtOffset(idx)
+			endIter := buf.IterAtOffset(idx + len(text))
+			buf.SelectRange(iter, endIter)
+			// Scroll to it
+			// This is tricky if it's in a list of expanders
+			return true
+		}
+		return false
+	}
+
+	if a.showSplit {
+		if !searchBuf(a.diffBufLeft) {
+			searchBuf(a.diffBufRight)
+		}
+	} else {
+		// Unified view uses a list of Expanders with TextViews
+		child := a.diffView.FirstChild()
+		for child != nil {
+			if exp, ok := child.(*gtk.Expander); ok {
+				if tv, ok := exp.Child().(*gtk.TextView); ok {
+					buf := tv.Buffer()
+					if searchBuf(buf) {
+						exp.SetExpanded(true)
+						return
+					}
+				}
+			} else if tv, ok := child.(*gtk.TextView); ok {
+				if searchBuf(tv.Buffer()) {
+					return
+				}
+			}
+			
+			if w, ok := child.(interface{ NextSibling() gtk.Widgetter }); ok {
+				child = w.NextSibling()
+			} else {
+				break
+			}
+		}
+	}
+}
+
+func (a *App) startAmend(c Commit) {
+	if a.state == nil || len(a.state.Commits) == 0 {
+		return
+	}
+	var latest *Commit
+	for i := range a.state.Commits {
+		if a.state.Commits[i].IsCommit {
+			latest = &a.state.Commits[i]
+			break
+		}
+	}
+	if latest == nil || c.Hash != latest.Hash {
+		a.setInfoErr("Only latest commit can be amended")
+		return
+	}
+
+	a.amendMode = true
+	a.commitEntry.SetText(c.Subject)
+	a.commitButton.SetLabel("Amend")
+	a.commitButton.AddCSSClass("suggested-action")
+	a.updateCommitButton()
+	a.commitEntry.GrabFocus()
+}
+
+func (a *App) cancelAmend() {
+	a.amendMode = false
+	a.commitEntry.SetText("")
+	a.commitButton.SetLabel("Commit")
+	a.commitButton.RemoveCSSClass("suggested-action")
+	a.updateCommitButton()
+}
+
+func (a *App) showCreateTagDialog(c Commit) {
+	a.promptDialog("Create Tag", "Tag Name for "+c.ShortHash+":", "v1.0.0", func(name string) {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return
+		}
+		err := CreateTag(a.state.Path, name, c.Hash)
+		if err != nil {
+			a.setInfoErr(err.Error())
+		} else {
+			a.setInfoOk("Tag created")
+			a.doReload(false)
+		}
+	})
 }
 
 func (a *App) markSelectedRow(lb *gtk.ListBox, row *gtk.ListBoxRow) {
@@ -4352,6 +4723,37 @@ func clearListBox(list *gtk.ListBox) {
 		}
 		list.Remove(row)
 	}
+}
+
+func (a *App) stopInputPropagation(w gtk.Widgetter) {
+	ctrl := gtk.NewEventControllerKey()
+	ctrl.SetPropagationPhase(gtk.PhaseCapture)
+
+	ctrl.ConnectKeyPressed(func(
+		keyval uint,
+		_ uint,
+		state gdk.ModifierType,
+	) bool {
+		cleanState := state &
+			(gdk.ControlMask | gdk.ShiftMask | gdk.AltMask)
+
+		if cleanState == gdk.ControlMask ||
+			cleanState == (gdk.ControlMask|gdk.ShiftMask) {
+			switch keyval {
+			case uint(gdk.KEY_a), uint(gdk.KEY_A),
+				uint(gdk.KEY_c), uint(gdk.KEY_C),
+				uint(gdk.KEY_v), uint(gdk.KEY_V),
+				uint(gdk.KEY_x), uint(gdk.KEY_X),
+				uint(gdk.KEY_z), uint(gdk.KEY_Z),
+				uint(gdk.KEY_y), uint(gdk.KEY_Y):
+				return true
+			}
+		}
+
+		return false
+	})
+
+	gtk.BaseWidget(w).AddController(ctrl)
 }
 
 func statusMark(f FileStatus) string {
@@ -4423,6 +4825,7 @@ func (a *App) openSetUpstreamDialog() {
 	branchEntry := gtk.NewEntry()
 	branchEntry.SetText(a.state.Branch)
 	branchEntry.SetHExpand(true)
+	a.stopInputPropagation(branchEntry)
 	grid.Attach(branchEntry, 1, 1, 1, 1)
 
 	content.Append(grid)

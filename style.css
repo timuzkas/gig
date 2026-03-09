@@ -154,7 +154,7 @@ headerbar menubutton *,
 .titlebar button,
 .titlebar button *,
 .titlebar menubutton,
-.titlebar menubutton *,
+.titlebar menubutton * {
   transition:
     background-color 50ms ease,
     border-color 50ms ease,
@@ -994,6 +994,18 @@ listbox row:selected *,
 }
 .diff-toggle-btn:hover {
   color: @text;
+}
+
+.diff-search-entry {
+  background-color: transparent;
+  border: none;
+  border-radius: 0;
+  min-height: 36px;
+  padding: 0 10px;
+}
+
+.diff-search-entry:focus {
+  background-color: alpha(@accent, 0.05);
 }
 
 .diff-empty-state {
