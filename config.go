@@ -85,6 +85,7 @@ type FeaturesConfig struct {
 	ShowRemoteSummary bool `toml:"show_remote_summary"`
 	RepoConfigDialog  bool `toml:"repo_config_dialog"`
 	ShowConflictBase  bool `toml:"show_conflict_base"`
+	WordDiff          bool `toml:"word_diff"`
 }
 
 type ReposConfig struct {
@@ -129,6 +130,7 @@ func DefaultConfig() Config {
 			ShowRemoteSummary: true,
 			RepoConfigDialog:  true,
 			ShowConflictBase:  false,
+			WordDiff:          true,
 		},
 		Repos: ReposConfig{
 			Paths: []string{"."},
@@ -149,7 +151,7 @@ func DefaultConfig() Config {
 			Search:      "slash",
 			OpenDir:     "<Control>o",
 			Help: "<Control>h",
-			StageAll: "<Control>a",
+			StageAll: "<Control><Shift>a",
 			Diff: "<Control>d",
 			Edit: "<Control>e",
 			UnstageAll: "<Control>z",

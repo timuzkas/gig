@@ -996,6 +996,15 @@ listbox row:selected *,
   color: @text;
 }
 
+.diff-toggle-btn.active {
+  color: @accent;
+  background-color: alpha(@accent, 0.08);
+}
+
+.diff-toggle-btn.active:hover {
+  background-color: alpha(@accent, 0.12);
+}
+
 .diff-search-entry {
   background-color: transparent;
   border: none;
@@ -1189,6 +1198,11 @@ row.section-header:hover {
   font-family: monospace;
   font-size: 12px;
   background-color: transparent;
+  transition: color 100ms ease;
+}
+.commit-hash:hover {
+  text-decoration: underline;
+  opacity: 0.8;
 }
 .commit-meta {
   color: @text_dim;

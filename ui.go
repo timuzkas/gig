@@ -143,6 +143,7 @@ func NewApp(cfg Config) *App {
 	)
 	a.conflictDrafts = make(map[string]string)
 	a.fileRowData = make(map[*gtk.ListBoxRow]fileRowInfo)
+	a.wordDiff = cfg.Features.WordDiff
 	return a
 }
 
@@ -1886,6 +1887,9 @@ func (a *App) buildLogAndDiff() *gtk.Paned {
 	wordDiffBtn := gtk.NewButtonWithLabel("Word Diff")
 	wordDiffBtn.AddCSSClass("flat")
 	wordDiffBtn.AddCSSClass("diff-toggle-btn")
+	if a.wordDiff {
+		wordDiffBtn.AddCSSClass("active")
+	}
 	wordDiffBtn.ConnectClicked(func() {
 		a.wordDiff = !a.wordDiff
 		if a.wordDiff {
@@ -2840,6 +2844,16 @@ func (a *App) populateCommits() {
 		hash.SetWidthChars(8)
 		hash.AddCSSClass("commit-hash")
 		box.Append(hash)
+
+		hashClick := gtk.NewGestureClick()
+		hashClick.ConnectReleased(func(n int, _, _ float64) {
+			clipboard := a.win.Clipboard()
+			if clipboard != nil {
+				clipboard.SetText(c.Hash)
+				a.setInfoOk("Copied hash: " + c.ShortHash)
+			}
+		})
+		hash.AddController(hashClick)
 
 		wrap := gtk.NewBox(gtk.OrientationVertical, 2)
 		wrap.SetHExpand(true)
@@ -3889,17 +3903,7 @@ func (a *App) setupHotkeys() {
 					if (cleanState & (gdk.ControlMask | gdk.AltMask)) == 0 {
 						return false
 					}
-					if cleanState == gdk.ControlMask || cleanState == (gdk.ControlMask|gdk.ShiftMask) {
-						switch keyval {
-						case uint(gdk.KEY_a), uint(gdk.KEY_A),
-							uint(gdk.KEY_c), uint(gdk.KEY_C),
-							uint(gdk.KEY_v), uint(gdk.KEY_V),
-							uint(gdk.KEY_x), uint(gdk.KEY_X),
-							uint(gdk.KEY_z), uint(gdk.KEY_Z),
-							uint(gdk.KEY_y), uint(gdk.KEY_Y):
-							return false
-						}
-					}
+					return false
 				}
 			}
 
