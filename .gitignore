@@ -10,3 +10,5 @@ main
 gig.log
 
 testignore
+
+.gitmessage
