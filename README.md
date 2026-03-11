@@ -23,5 +23,7 @@ go build -o gig .
 
 ## Showcase
 
+![gig screenshot](screenshot.png)
+
 ## License
 MIT
