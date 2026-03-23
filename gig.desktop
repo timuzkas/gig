@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=gig
+Comment=A minimalist GTK4 Git client for keyboard-centric workflows
+Exec=/home/timuzkas/.local/bin/gig
+Icon=/home/timuzkas/git/gig/gig.png
+Terminal=false
+Categories=Development;Git;Utility;
